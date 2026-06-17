@@ -7,12 +7,19 @@ using Serilog;
 
 namespace PersonalAssistant;
 
+/// <summary>
+/// WPF 应用程序入口，负责 DI 容器初始化、Serilog 配置和全局异常处理
+/// </summary>
 public partial class App : Application
 {
+    /// <summary>全局 DI 服务提供器，供 View 无参构造函数使用</summary>
     public static IServiceProvider Services { get; private set; } = null!;
 
     private readonly IHost _host;
 
+    /// <summary>
+    /// 初始化应用程序，构建 DI 容器并注册所有服务
+    /// </summary>
     public App()
     {
         _host = Host.CreateDefaultBuilder()
@@ -51,6 +58,9 @@ public partial class App : Application
         DispatcherUnhandledException += OnDispatcherUnhandledException;
     }
 
+    /// <summary>
+    /// 启动 Host 并显示主窗口
+    /// </summary>
     protected override async void OnStartup(StartupEventArgs e)
     {
         await _host.StartAsync();
@@ -61,6 +71,9 @@ public partial class App : Application
         base.OnStartup(e);
     }
 
+    /// <summary>
+    /// 停止 Host 并释放资源
+    /// </summary>
     protected override async void OnExit(ExitEventArgs e)
     {
         await _host.StopAsync(TimeSpan.FromSeconds(5));
@@ -68,6 +81,9 @@ public partial class App : Application
         base.OnExit(e);
     }
 
+    /// <summary>
+    /// 全局未处理异常兜底：记录日志并弹窗提示用户
+    /// </summary>
     private void OnDispatcherUnhandledException(object sender,
         System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {

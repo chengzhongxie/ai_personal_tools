@@ -5,8 +5,12 @@ using System.Text.Json;
 
 namespace PersonalAssistant.Features.Chat.Services;
 
+/// <summary>
+/// 工具执行服务实现，提供文件读写、目录列表、网页抓取和 Shell 命令执行五种工具
+/// </summary>
 public class ToolService : IToolService
 {
+    /// <inheritdoc />
     public Task<string> ExecuteToolAsync(string name, string argumentsJson)
     {
         using var doc = JsonDocument.Parse(argumentsJson);
@@ -28,6 +32,7 @@ public class ToolService : IToolService
         return Task.FromResult(result);
     }
 
+    /// <summary>读取指定路径的文件内容，超过 10000 字符时截断</summary>
     private static string ToolReadFile(string path)
     {
         try
@@ -42,6 +47,7 @@ public class ToolService : IToolService
         catch (Exception ex) { return $"Error reading file: {ex.Message}"; }
     }
 
+    /// <summary>将文本内容写入指定路径的文件，自动创建父目录</summary>
     private static string ToolWriteFile(string path, string content)
     {
         try
@@ -55,6 +61,7 @@ public class ToolService : IToolService
         catch (Exception ex) { return $"Error writing file: {ex.Message}"; }
     }
 
+    /// <summary>列出目录下的文件和子目录，前缀标记 [DIR] / [FILE]</summary>
     private static string ToolListFiles(string? path = null)
     {
         try
@@ -69,6 +76,7 @@ public class ToolService : IToolService
         catch (Exception ex) { return $"Error listing files: {ex.Message}"; }
     }
 
+    /// <summary>抓取指定 URL 的文本内容，15 秒超时，超过 8000 字符时截断</summary>
     private static async Task<string> ToolWebFetch(string url)
     {
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
@@ -82,6 +90,7 @@ public class ToolService : IToolService
         catch (Exception ex) { return $"Error fetching URL: {ex.Message}"; }
     }
 
+    /// <summary>执行 Shell 命令并返回输出，5 秒超时，自动适配 Windows/Linux</summary>
     private static string ToolRunShell(string command)
     {
         try

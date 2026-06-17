@@ -8,6 +8,9 @@ using AppModels = PersonalAssistant.Features.Chat.Models;
 
 namespace PersonalAssistant.Features.Chat.Services;
 
+/// <summary>
+/// AI 聊天服务实现，通过 DeepSeek API 提供对话能力，支持自动工具调用循环
+/// </summary>
 public class ChatService : IChatService
 {
     private readonly IToolService _toolService;
@@ -15,6 +18,10 @@ public class ChatService : IChatService
     private readonly ChatCompletionOptions _chatOptions;
     private readonly List<ChatMessage> _messages;
 
+    /// <summary>
+    /// 初始化聊天服务，配置 DeepSeek API 客户端、注册工具定义、设置系统提示
+    /// </summary>
+    /// <exception cref="InvalidOperationException">API 密钥未配置时抛出</exception>
     public ChatService(IToolService toolService, IOptions<AppModels.ChatSettings> options)
     {
         _toolService = toolService;
@@ -49,6 +56,7 @@ public class ChatService : IChatService
         };
     }
 
+    /// <inheritdoc />
     public async Task<AppModels.ChatResponse> SendMessageAsync(string userMessage)
     {
         try
@@ -100,11 +108,13 @@ public class ChatService : IChatService
         }
     }
 
+    /// <inheritdoc />
     public void ClearHistory()
     {
         _messages.RemoveRange(1, _messages.Count - 1);
     }
 
+    /// <summary>创建 DeepSeek function calling 工具定义列表</summary>
     private static List<ChatTool> CreateToolDefs()
     {
         return new List<ChatTool>
@@ -132,6 +142,7 @@ public class ChatService : IChatService
         };
     }
 
+    /// <summary>将工具参数定义转换为 OpenAI SDK 所需的 BinaryData JSON Schema 格式</summary>
     private static BinaryData CreateToolParams(
         string[]? required = null,
         params (string Name, string Type, string Desc, string[]? Enum)[] properties)
