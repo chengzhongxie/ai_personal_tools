@@ -3,7 +3,7 @@ using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using PersonalAssistant.Features.Chat.Models;
+using PersonalAssistant.Infrastructure.Common.Services;
 using Serilog;
 
 namespace PersonalAssistant;
@@ -29,8 +29,8 @@ public partial class App : Application
             .ConfigureServices((context, services) =>
             {
                 // Configuration
-                services.Configure<ChatSettings>(
-                    context.Configuration.GetSection("ChatSettings"));
+                // ChatSettings 不再从 appsettings.json 读取，改用 UserSettingsService
+                // Serilog 仍从 appsettings.json 读取
 
                 // Scrutor auto-scan: *Service → AsImplementedInterfaces, Singleton
                 services.Scan(scan => scan
@@ -50,7 +50,11 @@ public partial class App : Application
                     .WithSingletonLifetime());
 
                 // Manual registrations
+                services.AddSingleton<UserSettingsService>();
+                services.AddSingleton<TrayService>();
                 services.AddSingleton<MainWindow>();
+                services.AddSingleton<PersonalAssistant.Features.Mascot.MascotWindow>();
+                services.AddSingleton<PersonalAssistant.Features.Settings.SettingsWindow>();
             })
             .Build();
 
@@ -70,6 +74,9 @@ public partial class App : Application
         var mainWindow = Services.GetRequiredService<MainWindow>();
         mainWindow.Show();
 
+        // 触发 TrayService 初始化（托盘图标 + 注册表读取）
+        Services.GetRequiredService<TrayService>();
+
         base.OnStartup(e);
     }
 
@@ -78,6 +85,7 @@ public partial class App : Application
     /// </summary>
     protected override async void OnExit(ExitEventArgs e)
     {
+        Services.GetRequiredService<TrayService>().Dispose();
         await _host.StopAsync(TimeSpan.FromSeconds(5));
         _host.Dispose();
         base.OnExit(e);

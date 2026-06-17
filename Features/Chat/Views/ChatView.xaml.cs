@@ -25,6 +25,13 @@ public partial class ChatView : UserControl
         InitializeComponent();
     }
 
+    /// <summary>聚焦输入框并将光标移至末尾</summary>
+    public void FocusInput()
+    {
+        InputTextBox.Focus();
+        InputTextBox.Select(InputTextBox.Text.Length, 0);
+    }
+
     /// <summary>处理输入框回车键：非工作状态时发送消息</summary>
     private void InputTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {

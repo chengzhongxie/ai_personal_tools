@@ -1,9 +1,9 @@
 using System.ClientModel;
 using System.Text.Json.Nodes;
-using Microsoft.Extensions.Options;
 using OpenAI;
 using OpenAI.Chat;
 using Serilog;
+using PersonalAssistant.Infrastructure.Common.Services;
 using AppModels = PersonalAssistant.Features.Chat.Models;
 
 namespace PersonalAssistant.Features.Chat.Services;
@@ -13,37 +13,22 @@ namespace PersonalAssistant.Features.Chat.Services;
 /// </summary>
 public class ChatService : IChatService
 {
+    private const int MaxHistory = 200; // 含 system 消息，超出自动修剪
+
     private readonly IToolService _toolService;
-    private readonly ChatClient _chatClient;
-    private readonly ChatCompletionOptions _chatOptions;
+    private readonly UserSettingsService _settings;
     private readonly List<ChatMessage> _messages;
 
+    private ChatClient? _chatClient;
+    private ChatCompletionOptions? _chatOptions;
+
     /// <summary>
-    /// 初始化聊天服务，配置 DeepSeek API 客户端、注册工具定义、设置系统提示
+    /// 初始化聊天服务，懒加载 API 客户端（首次发送消息时才校验 Key）
     /// </summary>
-    /// <exception cref="InvalidOperationException">API 密钥未配置时抛出</exception>
-    public ChatService(IToolService toolService, IOptions<AppModels.ChatSettings> options)
+    public ChatService(IToolService toolService, UserSettingsService settings)
     {
         _toolService = toolService;
-
-        var settings = options.Value;
-        var apiKey = settings.ApiKey
-            ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
-
-        if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "sk-your-key-here")
-            throw new InvalidOperationException(
-                "DeepSeek API 密钥未配置。请在 appsettings.json (ChatSettings:ApiKey) 中设置，" +
-                "或通过 DEEPSEEK_API_KEY 环境变量设置。");
-
-        var openAiClient = new OpenAIClient(
-            new ApiKeyCredential(apiKey),
-            new OpenAIClientOptions { Endpoint = new Uri(settings.Endpoint) }
-        );
-        _chatClient = openAiClient.GetChatClient(settings.Model);
-
-        _chatOptions = new ChatCompletionOptions();
-        foreach (var tool in CreateToolDefs())
-            _chatOptions.Tools.Add(tool);
+        _settings = settings;
 
         _messages = new List<ChatMessage>
         {
@@ -56,18 +41,49 @@ public class ChatService : IChatService
         };
     }
 
+    /// <summary>懒初始化 ChatClient，若 Key 未配置则返回错误</summary>
+    private string? EnsureInitialized()
+    {
+        if (_chatClient is not null)
+            return null;
+
+        var chatSettings = _settings.GetChatSettings();
+        var apiKey = chatSettings.ApiKey
+            ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+
+        if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "sk-your-key-here")
+            return "DeepSeek API 密钥未配置。请右键托盘图标 → 设置，配置 API Key，" +
+                   "或通过 DEEPSEEK_API_KEY 环境变量设置。";
+
+        var openAiClient = new OpenAIClient(
+            new ApiKeyCredential(apiKey),
+            new OpenAIClientOptions { Endpoint = new Uri(chatSettings.Endpoint) }
+        );
+        _chatClient = openAiClient.GetChatClient(chatSettings.Model);
+
+        _chatOptions = new ChatCompletionOptions();
+        foreach (var tool in CreateToolDefs())
+            _chatOptions.Tools.Add(tool);
+
+        return null;
+    }
+
     /// <inheritdoc />
     public async Task<AppModels.ChatResponse> SendMessageAsync(string userMessage)
     {
         try
         {
+            var initError = EnsureInitialized();
+            if (initError is not null)
+                return new AppModels.ChatResponse { IsError = true, ErrorMessage = initError };
+
             _messages.Add(new UserChatMessage(userMessage));
 
             var toolCallNames = new List<string>();
 
             while (true)
             {
-                var result = await _chatClient.CompleteChatAsync(_messages, _chatOptions);
+                var result = await _chatClient!.CompleteChatAsync(_messages, _chatOptions);
                 var completion = result.Value;
 
                 if (completion.ToolCalls.Count == 0)
@@ -76,6 +92,7 @@ public class ChatService : IChatService
                         ? string.Join("", completion.Content.Select(c => c.Text))
                         : "";
                     _messages.Add(new AssistantChatMessage(completion));
+                    TrimHistory();
                     return new AppModels.ChatResponse
                     {
                         Content = text,
@@ -112,6 +129,13 @@ public class ChatService : IChatService
     public void ClearHistory()
     {
         _messages.RemoveRange(1, _messages.Count - 1);
+    }
+
+    /// <summary>修剪历史到上限，保留系统消息（索引0）</summary>
+    private void TrimHistory()
+    {
+        while (_messages.Count > MaxHistory)
+            _messages.RemoveAt(1); // 移除最旧的非系统消息
     }
 
     /// <summary>创建 DeepSeek function calling 工具定义列表</summary>

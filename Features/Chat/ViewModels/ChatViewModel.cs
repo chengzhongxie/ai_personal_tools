@@ -14,6 +14,8 @@ namespace PersonalAssistant.Features.Chat.ViewModels;
 /// </summary>
 public partial class ChatViewModel : ObservableObject
 {
+    private const int MaxDisplayMessages = 200;
+
     private readonly IChatService _chatService;
 
     /// <summary>聊天消息列表</summary>
@@ -128,7 +130,14 @@ public partial class ChatViewModel : ObservableObject
         finally
         {
             IsWorking = false;
+            TrimDisplay();
         }
+    }
+
+    private void TrimDisplay()
+    {
+        while (Messages.Count > MaxDisplayMessages)
+            Messages.RemoveAt(0);
     }
 
     /// <summary>

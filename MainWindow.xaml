@@ -3,11 +3,22 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:views="clr-namespace:PersonalAssistant.Features.Chat.Views"
-                 Title="Personal AI Assistant"
+                 Title="个人 AI 助手"
                  Height="650" Width="900"
                  WindowStartupLocation="CenterScreen"
-                 ExtendsContentIntoTitleBar="True">
+                 ExtendsContentIntoTitleBar="True"
+                 Background="#0B0E14">
     <Grid>
-        <views:ChatView />
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0"
+                     Title="个人 AI 助手"
+                     Background="#0B0E14"
+                     Foreground="#E8ECF1" />
+
+        <views:ChatView Grid.Row="1" x:Name="ChatViewControl" />
     </Grid>
 </ui:FluentWindow>

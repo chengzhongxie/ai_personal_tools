@@ -1,0 +1,124 @@
+<Window x:Class="PersonalAssistant.Features.Mascot.MascotWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Width="100" Height="120"
+        WindowStartupLocation="Manual"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True">
+
+    <Window.Resources>
+        <LinearGradientBrush x:Key="BodyBrush" StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#4A90D9" Offset="0" />
+            <GradientStop Color="#2E6AB0" Offset="1" />
+        </LinearGradientBrush>
+
+        <RadialGradientBrush x:Key="HeadBrush" Center="0.35,0.35" GradientOrigin="0.35,0.35">
+            <GradientStop Color="#7BB8F0" Offset="0" />
+            <GradientStop Color="#3D7EC5" Offset="0.6" />
+            <GradientStop Color="#1F4E8A" Offset="1" />
+        </RadialGradientBrush>
+    </Window.Resources>
+
+    <Grid>
+        <Canvas Width="100" Height="120"
+                x:Name="RobotCanvas"
+                MouseEnter="RobotCanvas_MouseEnter"
+                MouseLeave="RobotCanvas_MouseLeave"
+                RenderOptions.BitmapScalingMode="LowQuality">
+            <Canvas.RenderTransform>
+                <TransformGroup>
+                    <TranslateTransform x:Name="FloatTransform" Y="0" />
+                    <ScaleTransform x:Name="ScaleTransform"
+                                    CenterX="50" CenterY="60"
+                                    ScaleX="1" ScaleY="1" />
+                </TransformGroup>
+            </Canvas.RenderTransform>
+
+            <!-- 伪阴影（半透明椭圆，替代 DropShadowEffect） -->
+            <Ellipse Width="74" Height="28"
+                     Fill="#20000000"
+                     Canvas.Left="13" Canvas.Top="91" />
+
+            <!-- 天线杆 -->
+            <Rectangle x:Name="AntennaRod"
+                       Width="2" Height="14"
+                       Fill="#4A90D9"
+                       Canvas.Left="49" Canvas.Top="0" />
+
+            <!-- 天线球光晕（半透明椭圆，替代 DropShadowEffect） -->
+            <Ellipse x:Name="AntennaGlow"
+                     Width="18" Height="18"
+                     Fill="#50FFD700"
+                     Canvas.Left="41" Canvas.Top="-9" />
+
+            <!-- 天线球 -->
+            <Ellipse x:Name="AntennaBall"
+                     Width="10" Height="10"
+                     Fill="#FFD700"
+                     Canvas.Left="45" Canvas.Top="-5" />
+
+            <!-- 头部 -->
+            <Ellipse x:Name="Head"
+                     Width="70" Height="70"
+                     Fill="{StaticResource HeadBrush}"
+                     Canvas.Left="15" Canvas.Top="10" />
+
+            <!-- 左眼 -->
+            <Ellipse x:Name="LeftEyeWhite"
+                     Width="20" Height="22"
+                     Fill="White"
+                     Canvas.Left="28" Canvas.Top="28" />
+            <Ellipse x:Name="LeftPupil"
+                     Width="9" Height="10"
+                     Fill="Black"
+                     Canvas.Left="35" Canvas.Top="34" />
+            <Ellipse x:Name="LeftHighlight"
+                     Width="4" Height="4"
+                     Fill="White"
+                     Canvas.Left="38" Canvas.Top="32" />
+
+            <!-- 右眼 -->
+            <Ellipse x:Name="RightEyeWhite"
+                     Width="20" Height="22"
+                     Fill="White"
+                     Canvas.Left="52" Canvas.Top="28" />
+            <Ellipse x:Name="RightPupil"
+                     Width="9" Height="10"
+                     Fill="Black"
+                     Canvas.Left="59" Canvas.Top="34" />
+            <Ellipse x:Name="RightHighlight"
+                     Width="4" Height="4"
+                     Fill="White"
+                     Canvas.Left="62" Canvas.Top="32" />
+
+            <!-- 嘴巴 -->
+            <Path x:Name="Mouth"
+                  Stroke="#1A3A5C"
+                  StrokeThickness="2"
+                  StrokeStartLineCap="Round"
+                  StrokeEndLineCap="Round"
+                  Canvas.Left="35" Canvas.Top="50">
+                <Path.Data>
+                    <PathGeometry>
+                        <PathFigure StartPoint="0,0">
+                            <QuadraticBezierSegment Point1="10,8" Point2="20,0" />
+                        </PathFigure>
+                    </PathGeometry>
+                </Path.Data>
+            </Path>
+
+            <!-- 身体 -->
+            <Rectangle x:Name="Body"
+                       Width="36" Height="30"
+                       RadiusX="8" RadiusY="8"
+                       Fill="{StaticResource BodyBrush}"
+                       Canvas.Left="32" Canvas.Top="78" />
+        </Canvas>
+    </Grid>
+</Window>
