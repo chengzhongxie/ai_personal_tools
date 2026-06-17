@@ -32,8 +32,8 @@ public class ChatService : IChatService
 
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "sk-your-key-here")
             throw new InvalidOperationException(
-                "DeepSeek API Key not configured. Set it in appsettings.json (ChatSettings:ApiKey) " +
-                "or via the DEEPSEEK_API_KEY environment variable.");
+                "DeepSeek API 密钥未配置。请在 appsettings.json (ChatSettings:ApiKey) 中设置，" +
+                "或通过 DEEPSEEK_API_KEY 环境变量设置。");
 
         var openAiClient = new OpenAIClient(
             new ApiKeyCredential(apiKey),
@@ -99,7 +99,7 @@ public class ChatService : IChatService
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error in SendMessageAsync");
+            Log.Error(ex, "SendMessageAsync 出错");
             return new AppModels.ChatResponse
             {
                 IsError = true,

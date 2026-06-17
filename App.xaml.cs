@@ -89,9 +89,9 @@ public partial class App : Application
     private void OnDispatcherUnhandledException(object sender,
         System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
-        Log.Fatal(e.Exception, "Unhandled dispatcher exception");
-        MessageBox.Show($"An unexpected error occurred:\n\n{e.Exception.Message}",
-            "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+        Log.Fatal(e.Exception, "未处理的调度器异常");
+        MessageBox.Show($"发生未知错误:\n\n{e.Exception.Message}",
+            "错误", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
     }
 
@@ -100,7 +100,7 @@ public partial class App : Application
     /// </summary>
     private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
     {
-        Log.Fatal(e.Exception, "Unobserved task exception");
+        Log.Fatal(e.Exception, "未观察到的任务异常");
         e.SetObserved();
     }
 }

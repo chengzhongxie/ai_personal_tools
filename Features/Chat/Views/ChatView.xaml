@@ -115,11 +115,11 @@
             </ItemsControl>
         </ScrollViewer>
 
-        <!-- InfoBar for errors -->
+        <!-- 错误提示条 -->
         <ui:InfoBar Grid.Row="2"
                     Margin="12,4"
                     IsOpen="{Binding ViewModel.ShowInfoBar}"
-                    Title="Error"
+                    Title="错误"
                     Message="{Binding ViewModel.InfoBarMessage}"
                     Severity="{Binding ViewModel.InfoBarSeverity}"
                     IsClosable="True" />

@@ -98,7 +98,7 @@ public partial class ChatViewModel : ObservableObject
             else
             {
                 var toolCallText = response.ToolCalls.Count > 0
-                    ? "\n\n[Tools used: " + string.Join(", ", response.ToolCalls) + "]"
+                    ? "\n\n[使用工具: " + string.Join(", ", response.ToolCalls) + "]"
                     : "";
 
                 Messages.Add(new ChatMessage
@@ -112,11 +112,11 @@ public partial class ChatViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "SendAsync failed");
+            Log.Error(ex, "SendAsync 失败");
             Messages.Add(new ChatMessage
             {
                 Role = MessageRole.Assistant,
-                Content = $"Unexpected error: {ex.Message}",
+                Content = $"未知错误: {ex.Message}",
                 Timestamp = DateTime.Now,
                 IsError = true
             });
