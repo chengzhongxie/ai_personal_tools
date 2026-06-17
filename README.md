@@ -1,4 +1,4 @@
-# Claude Conventions Library
+# Claude WPF Library
 
 可复用的 AI 编码助手项目规范模板，适用于 **.NET + WPF + MVVM** 技术栈的桌面应用。
 
@@ -6,7 +6,7 @@
 
 ```bash
 # 初始化
-git submodule add https://github.com/<your-username>/claude-conventions-library.git docs/template
+git submodule add https://github.com/chengzhongxie/claude-wpf-library.git docs/template
 ```
 
 ```markdown
