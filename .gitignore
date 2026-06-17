@@ -1,0 +1,55 @@
+## Visual Studio / .NET
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.userprefs
+*.vs/
+.vscode/
+[Dd]ebug/
+[Rr]elease/
+[Dd]ebugPublic/
+[Rr]eleasePublic/
+x64/
+x86/
+bld/
+[Bb]in/
+[Oo]bj/
+.idea/
+.vs/
+
+## NuGet
+packages/
+*.nupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+## Build results
+[Pp]ublished/
+*.Cache
+*.dll
+*.exe
+*.pdb
+TestResults/
+[Bb]uildLog.htm
+[Bb]uild/
+*.zip
+*.rar
+*.7z
+
+## .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## App Settings (contains secrets)
+appsettings.json
+*.PrivateSettings.json
+
+## OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+## Claude
+.claude/settings.local.json
