@@ -1,4 +1,3 @@
-using Microsoft.Extensions.DependencyInjection;
 using Wpf.Ui.Controls;
 
 namespace PersonalAssistant;
@@ -8,15 +7,10 @@ namespace PersonalAssistant;
 /// </summary>
 public partial class MainWindow : FluentWindow
 {
-    /// <summary>无参构造函数</summary>
+    /// <summary>无参构造函数（DI 容器通过此构造函数创建实例）</summary>
     public MainWindow()
     {
         DataContext = this;
         InitializeComponent();
-    }
-
-    /// <summary>DI 构造函数</summary>
-    public MainWindow(IServiceProvider serviceProvider) : this()
-    {
     }
 }

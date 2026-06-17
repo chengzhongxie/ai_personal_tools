@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -56,6 +57,7 @@ public partial class App : Application
         Services = _host.Services;
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
     }
 
     /// <summary>
@@ -91,5 +93,14 @@ public partial class App : Application
         MessageBox.Show($"An unexpected error occurred:\n\n{e.Exception.Message}",
             "Error", MessageBoxButton.OK, MessageBoxImage.Error);
         e.Handled = true;
+    }
+
+    /// <summary>
+    /// 未观察到的 Task 异常兜底：记日志防止静默进程崩溃
+    /// </summary>
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        Log.Fatal(e.Exception, "Unobserved task exception");
+        e.SetObserved();
     }
 }

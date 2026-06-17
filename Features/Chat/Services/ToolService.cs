@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
+using Serilog;
 
 namespace PersonalAssistant.Features.Chat.Services;
 
@@ -11,7 +12,7 @@ namespace PersonalAssistant.Features.Chat.Services;
 public class ToolService : IToolService
 {
     /// <inheritdoc />
-    public Task<string> ExecuteToolAsync(string name, string argumentsJson)
+    public async Task<string> ExecuteToolAsync(string name, string argumentsJson)
     {
         using var doc = JsonDocument.Parse(argumentsJson);
         var args = doc.RootElement;
@@ -24,12 +25,12 @@ public class ToolService : IToolService
             "read_file" => ToolReadFile(GetArg("path")!),
             "write_file" => ToolWriteFile(GetArg("path")!, GetArg("content")!),
             "list_files" => ToolListFiles(GetArg("path")),
-            "web_fetch" => ToolWebFetch(GetArg("url")!).GetAwaiter().GetResult(),
+            "web_fetch" => await ToolWebFetch(GetArg("url")!),
             "run_shell" => ToolRunShell(GetArg("command")!),
             _ => $"Unknown tool: {name}"
         };
 
-        return Task.FromResult(result);
+        return result;
     }
 
     /// <summary>读取指定路径的文件内容，超过 10000 字符时截断</summary>
@@ -44,7 +45,7 @@ public class ToolService : IToolService
                 content = content[..10000] + "\n... (truncated)";
             return content;
         }
-        catch (Exception ex) { return $"Error reading file: {ex.Message}"; }
+        catch (Exception ex) { Log.Error(ex, "Error reading file: {Path}", path); return $"Error reading file: {ex.Message}"; }
     }
 
     /// <summary>将文本内容写入指定路径的文件，自动创建父目录</summary>
@@ -58,7 +59,7 @@ public class ToolService : IToolService
             File.WriteAllText(path, content);
             return $"Successfully wrote {content.Length} characters to {path}";
         }
-        catch (Exception ex) { return $"Error writing file: {ex.Message}"; }
+        catch (Exception ex) { Log.Error(ex, "Error writing file: {Path}", path); return $"Error writing file: {ex.Message}"; }
     }
 
     /// <summary>列出目录下的文件和子目录，前缀标记 [DIR] / [FILE]</summary>
@@ -73,7 +74,7 @@ public class ToolService : IToolService
                 .Select(e => $"{(Directory.Exists(e) ? "[DIR] " : "[FILE]")} {Path.GetFileName(e)}");
             return string.Join("\n", entries);
         }
-        catch (Exception ex) { return $"Error listing files: {ex.Message}"; }
+        catch (Exception ex) { Log.Error(ex, "Error listing files: {Path}", path); return $"Error listing files: {ex.Message}"; }
     }
 
     /// <summary>抓取指定 URL 的文本内容，15 秒超时，超过 8000 字符时截断</summary>
@@ -87,10 +88,10 @@ public class ToolService : IToolService
                 response = response[..8000] + "\n... (truncated)";
             return response;
         }
-        catch (Exception ex) { return $"Error fetching URL: {ex.Message}"; }
+        catch (Exception ex) { Log.Error(ex, "Error fetching URL: {Url}", url); return $"Error fetching URL: {ex.Message}"; }
     }
 
-    /// <summary>执行 Shell 命令并返回输出，5 秒超时，自动适配 Windows/Linux</summary>
+    /// <summary>执行 Shell 命令并返回输出，5 秒超时，使用 ArgumentList 避免命令注入</summary>
     private static string ToolRunShell(string command)
     {
         try
@@ -98,12 +99,13 @@ public class ToolService : IToolService
             var psi = new ProcessStartInfo
             {
                 FileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash",
-                Arguments = OperatingSystem.IsWindows() ? $"/c {command}" : $"-c \"{command}\"",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
+            psi.ArgumentList.Add(OperatingSystem.IsWindows() ? "/c" : "-c");
+            psi.ArgumentList.Add(command);
 
             using var process = Process.Start(psi)!;
             var output = process.StandardOutput.ReadToEnd();
@@ -115,6 +117,6 @@ public class ToolService : IToolService
                 result += "\n[stderr]\n" + error;
             return string.IsNullOrWhiteSpace(result) ? "(no output)" : result;
         }
-        catch (Exception ex) { return $"Error running command: {ex.Message}"; }
+        catch (Exception ex) { Log.Error(ex, "Error running command: {Command}", command); return $"Error running command: {ex.Message}"; }
     }
 }

@@ -87,7 +87,7 @@ public class ChatService : IChatService
 
                 foreach (var toolCall in completion.ToolCalls)
                 {
-                    Log.Information("[Tool] {ToolName}", toolCall.FunctionName);
+                    Log.Debug("[Tool] {ToolName}", toolCall.FunctionName);
                     toolCallNames.Add(toolCall.FunctionName);
 
                     var resultText = await _toolService.ExecuteToolAsync(

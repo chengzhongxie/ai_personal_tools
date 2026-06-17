@@ -3,7 +3,7 @@ using System.Windows;
 using System.Windows.Data;
 using PersonalAssistant.Features.Chat.Models.Enums;
 
-namespace PersonalAssistant.Converters;
+namespace PersonalAssistant.Infrastructure.Common.Helpers;
 
 /// <summary>
 /// 消息角色到水平对齐方式的转换器：User → Right，Assistant → Left，其他 → Center

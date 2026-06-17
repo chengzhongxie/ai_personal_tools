@@ -5,13 +5,12 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:helpers="clr-namespace:PersonalAssistant.Infrastructure.Common.Helpers"
-             xmlns:converters="clr-namespace:PersonalAssistant.Converters"
              mc:Ignorable="d"
              d:DesignHeight="650" d:DesignWidth="900">
 
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
-        <converters:MessageAlignmentConverter x:Key="MessageAlignment" />
+        <helpers:MessageAlignmentConverter x:Key="MessageAlignment" />
     </UserControl.Resources>
 
     <Grid>
