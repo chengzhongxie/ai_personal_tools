@@ -25,7 +25,26 @@ public partial class App : Application
     {
         _host = Host.CreateDefaultBuilder()
             .UseSerilog((context, config) =>
-                config.ReadFrom.Configuration(context.Configuration))
+            {
+                // 日志文件写入 %APPDATA%\PersonalAssistant\logs\
+                var logDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                    "PersonalAssistant", "logs");
+
+                config
+                    .ReadFrom.Configuration(context.Configuration)
+                    .WriteTo.File(
+                        System.IO.Path.Combine(logDir, "app-.log"),
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 7,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}")
+                    .WriteTo.File(
+                        System.IO.Path.Combine(logDir, "errors-.log"),
+                        rollingInterval: RollingInterval.Day,
+                        retainedFileCountLimit: 30,
+                        restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Error,
+                        outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {Message:lj}{NewLine}{Exception}");
+            })
             .ConfigureServices((context, services) =>
             {
                 // Configuration
@@ -49,12 +68,26 @@ public partial class App : Application
                     .AsSelf()
                     .WithSingletonLifetime());
 
-                // Manual registrations
+                // Manual registrations (classes without interfaces, or
+                // that need explicit self-registration)
                 services.AddSingleton<UserSettingsService>();
                 services.AddSingleton<TrayService>();
                 services.AddSingleton<MainWindow>();
                 services.AddSingleton<PersonalAssistant.Features.Mascot.MascotWindow>();
-                services.AddSingleton<PersonalAssistant.Features.Settings.SettingsWindow>();
+                services.AddTransient<PersonalAssistant.Features.Settings.SettingsWindow>();
+
+                // MAF-based chat agent (replaces old IChatService/ChatService)
+                services.AddSingleton<PersonalAssistant.Features.Chat.Services.ChatAgentService>();
+
+                // Workflow / learning ability services
+                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.WorkflowRecorder>();
+                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.PatternDetector>();
+                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.WorkflowStorageService>();
+                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.WorkflowExecutorService>();
+
+                // Scheduler services
+                services.AddSingleton<PersonalAssistant.Features.Scheduler.Services.SchedulerStorageService>();
+                services.AddSingleton<PersonalAssistant.Features.Scheduler.Services.SchedulerService>();
             })
             .Build();
 
@@ -76,6 +109,9 @@ public partial class App : Application
 
         // 触发 TrayService 初始化（托盘图标 + 注册表读取）
         Services.GetRequiredService<TrayService>();
+
+        // 触发 SchedulerService 初始化（启动定时器）
+        Services.GetRequiredService<PersonalAssistant.Features.Scheduler.Services.SchedulerService>();
 
         base.OnStartup(e);
     }

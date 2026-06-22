@@ -2,6 +2,7 @@
 
 > WPF 桌面 AI 助手，通过 DeepSeek API 提供 AI 对话+工具调用能力。
 > 带卡通机器人悬浮窗 + 系统托盘，支持开机自启动。
+> 基于 Microsoft Agent Framework (MAF) 实现 AI 对话、工具调用循环和流式输出。
 
 ## 维护规则（强制）
 
@@ -18,7 +19,8 @@
 
 | 用途 | 库/技术 |
 |------|---------|
-| AI API | DeepSeek API (via OpenAI .NET SDK) |
+| AI 框架 | Microsoft Agent Framework (MAF) via `Microsoft.Agents.AI.OpenAI` 1.10.0 |
+| AI 底层 | DeepSeek API (via OpenAI .NET SDK 2.11.0) |
 | 聊天界面 | WPF + 深色科技风 Chat Bubble UI |
 | MVVM | CommunityToolkit.Mvvm 8.4.0 |
 | DI | Scrutor 6.1.0 自动扫描 |
@@ -26,13 +28,52 @@
 | 日志 | Serilog 4.3.0 |
 | 用户配置 | `%APPDATA%\PersonalAssistant\settings.json` (不入库，每台电脑独立) |
 
+## 架构变化（MAF 迁移后）
+
+```
+旧：OpenAI SDK → ChatService (手动 while 循环) → ToolService → DeepSeek
+新：MAF → ChatAgentService (内建工具循环) → AIFunction[] → DeepSeek
+                                    └── AgentSession (内建历史持久化)
+```
+
+核心替换：
+- `ChatClientAgent`（继承 `AIAgent`）替代手写 `ChatClient` + `while(true)` 工具循环
+- `AIFunctionFactory.Create()` + `[Description]` 属性替代手写 `BinaryData` JSON Schema
+- `AgentSession` 替代 `List<ChatMessage>` 手动管理历史
+- `RunStreamingAsync()` 替代 `CompleteChatAsync()` 一次性返回，实现逐 token 流式输出
+
 ## 功能模块
 
 ### Chat
-- **ChatService**：懒加载 DeepSeek API 客户端，首次发送消息时才校验 Key
-- **ToolService**：5 个工具实现（read_file, write_file, list_files, web_fetch, run_shell）
-- **ChatViewModel**：消息列表管理、发送/清空命令、InfoBar 错误显示，消息上限 200 条自动修剪
+- **ChatAgentService**：封装 MAF AIAgent + 6 个工具方法 + DeepSeek 端点兼容。工具：read_file, write_file, list_files, web_fetch, run_shell (PowerShell 命令), run_command (ShellExecute 启动程序，立即返回), find_app (搜索开始菜单), send_keys (Win32 SendInput 按键组合/文本输入), window_info (焦点窗口+可见窗口列表), focus_window (按标题聚焦窗口)。工具方法内建 WorkflowRecorder 集成，每次工具调用自动录制。支持 `SendMessageStreaming()` 流式输出和 `ClearHistoryAsync()` 清空历史。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
+- **ChatViewModel**：消息列表管理、流式 AI 响应更新、斜杠命令处理（/clear, /workflows, /run, /delete）、模式建议展示、InfoBar 错误显示。消息上限 200 条自动修剪。
+- **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。
 - **ChatView**：WPF 深色科技风聊天界面（消息气泡、输入框、加载动画），无 DropShadowEffect
+
+### Workflow（学习能力，Phase 2 新增）
+- **WorkflowRecorder**：录制每轮对话中的工具调用序列（工具名列表）
+- **PatternDetector**：最近 50 轮环形缓冲 + 序列匹配（≥3 次重复）→ 触发建议。已建议的序列不重复提示（`_shownKeys` HashSet）
+- **WorkflowStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\workflows\` 目录
+- **WorkflowExecutorService**：本地回放已保存工作流，不调用 AI，直接通过 `ChatAgentService.ExecuteToolStepAsync()` 执行
+
+### Scheduler（定时任务，Phase 3 新增）
+- **SchedulerService**：System.Threading.Timer 30s 间隔检查，SemaphoreSlim 防重入，匹配 HH:mm → 检查 LastRunDate → ExecuteToolStepAsync → 更新 LastRunDate。IDisposable 清理 Timer + Semaphore。
+- **SchedulerStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\schedules\` 目录
+- **ScheduledTask**：POCO 模型（Name, TimeOfDay, ToolName, ToolArgs, IsEnabled, CreatedAt, LastRunDate）
+
+### 新增命令
+
+| 命令 | 触发 | 作用 |
+|------|------|------|
+| `/workflows` | ChatViewModel | 列出已保存工作流 |
+| `/run <name>` | ChatViewModel | 本地回放工作流 |
+| `/delete <name>` | ChatViewModel | 删除工作流 |
+| `/record <name>` | ChatViewModel | 开始教学模式，录制后续工具调用 |
+| `/stop` | ChatViewModel | 停止录制并保存工作流 |
+| `/schedule add "HH:mm" <工具> "参数"` | ChatViewModel | 创建每日定时任务 |
+| `/schedules` | ChatViewModel | 列出所有定时任务 |
+| `/schedule delete "name"` | ChatViewModel | 删除定时任务 |
+| 建议回复 `yes 名字` | ChatViewModel | 保存检测到的重复序列为工作流 |
 
 ### Mascot
 - **MascotWindow**：卡通机器人悬浮窗，纯 XAML 绘制（椭圆/矩形/Path 拼合）
@@ -59,7 +100,7 @@
 | 规则 | 说明 |
 |------|------|
 | **禁止 DropShadowEffect** | 软件渲染每帧重绘，极度消耗 GPU/CPU。用半透明 Shape 代替阴影，用 Fill 颜色变化代替发光 |
-| **消息上限 200** | ChatService 和 ChatViewModel 各限 200 条，超出自动修剪最旧消息，防止内存无限增长 |
+| **消息上限 200** | ChatAgentService AgentSession 管理 + ChatViewModel 各限 200 条，超出自动修剪最旧消息，防止内存无限增长 |
 | **动画对象复用** | EasingFunction 等无状态对象必须缓存为实例字段，不在热点路径 `new` |
 | **鼠标事件节流** | 高频事件（MouseMove）必须节流（Stopwatch 控制间隔），不超过 30fps |
 | **隐藏时停动画** | 窗口/控件隐藏时必须停止所有 RepeatBehavior.Forever 动画 |
@@ -78,16 +119,15 @@
 | **内存稳态要求** | 长时间运行后（>1小时），进程内存应在稳态范围内波动，不得持续单向增长。定期操作（如消息列表）需有上限截断 |
 | **新功能必评估资源成本** | 每新增一个功能模块，必须在代码注释或 commit 中说明其对 CPU/内存的持续影响（近似零 / 按需消耗 / 持续消耗 xMB） |
 
-### 新功能开发检查清单
+### 学习能力资源评估
+- **WorkflowRecorder**：近似零开销（仅追加到 `List<string>`，每轮对话清空）
+- **PatternDetector**：按需消耗（仅在每轮结束时做 O(n) 序列匹配，n ≤ 50）
+- **WorkflowStorageService**：按需消耗（仅读写时触发磁盘 I/O）
+- **WorkflowExecutorService**：按需消耗（仅 `/run` 命令时执行，不调 AI）
 
-开发新功能时必须逐项确认：
-
-- [ ] 是否引入了新的 WPF 视觉效果？（DropShadowEffect / BlurEffect = 禁止）
-- [ ] 是否有定时器或循环逻辑？间隔是多少？
-- [ ] 隐藏/不活跃时是否释放了不需要的资源？
-- [ ] 所有 Brush / Animation / EasingFunction 是否已复用/冻结？
-- [ ] 新建的对象是否都会在合理时间内被 GC 回收？（无 eternal 强引用）
-- [ ] 内存增长是否有上界？（集合类必须有容量上限）
+### 定时任务资源评估
+- **SchedulerService**：30s 定时器 Tick 检查（O(1) 字符串比较），无任务时 CPU 趋近零
+- **SchedulerStorageService**：按需消耗（仅 Tick 匹配时读磁盘 + 执行后写 LastRunDate）
 
 ## 配置约定
 
@@ -96,6 +136,8 @@
 - `appsettings.json`（不入库）：仅含 `Serilog` 日志配置
 - `appsettings.template.json`（入库）：Serilog 占位符模板
 - 开机自启动：通过注册表 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\PersonalAssistant` 管理
+- 工作流数据：保存在 `%APPDATA%\PersonalAssistant\workflows\` 目录
+- 定时任务数据：保存在 `%APPDATA%\PersonalAssistant\schedules\` 目录
 
 ## 启动流程
 
@@ -103,10 +145,11 @@
 2. `UserSettingsService` 从 `%APPDATA%` 加载配置
 3. `MainWindow` 加载 → 显示 `ChatView`
 4. `TrayService` 初始化托盘图标
-5. 用户发送消息 → `ChatViewModel.SendAsync()` → `ChatService.SendMessageAsync()` → DeepSeek API
-6. 关闭窗口 → 隐藏主窗口 → 显示卡通人偶浮动窗
-7. 最小化窗口 → 隐藏主窗口（不在任务栏） → 显示人偶
-8. 点击人偶 / 托盘"显示主窗口" → 隐藏人偶 → 恢复主窗口
+5. `SchedulerService` 初始化后台定时任务调度（30s 间隔）
+6. 用户发送消息 → `ChatViewModel.SendAsync()` → `ChatAgentService.SendMessageStreaming()` → MAF → DeepSeek API（流式输出）
+7. 关闭窗口 → 隐藏主窗口 → 显示卡通人偶浮动窗
+8. 最小化窗口 → 隐藏主窗口（不在任务栏） → 显示人偶
+9. 点击人偶 / 托盘"显示主窗口" → 隐藏人偶 → 恢复主窗口
 
 ## 项目结构
 
@@ -116,18 +159,25 @@ PersonalAssistant/
 ├── MainWindow.xaml / MainWindow.xaml.cs # FluentWindow + TitleBar + ChatView
 ├── Features/
 │   ├── Chat/
-│   │   ├── Models/                      # 消息/响应/设置模型 + 枚举
-│   │   ├── Services/                    # ChatService, ToolService
+│   │   ├── Models/                      # ChatMessage + ChatSettings + 枚举
+│   │   ├── Services/                    # ChatAgentService (MAF 封装)
 │   │   ├── ViewModels/ChatViewModel.cs
 │   │   └── Views/ChatView.xaml/.cs
 │   ├── Mascot/
 │   │   ├── MascotWindow.xaml            # XAML 形状绘制的机器人（无 DropShadowEffect）
 │   │   └── MascotWindow.xaml.cs         # 眼球追踪、悬停、点击弹跳、拖拽逻辑
-│   └── Settings/
-│       ├── SettingsWindow.xaml          # AI 配置 + 开机自启动
-│       └── SettingsWindow.xaml.cs
+│   ├── Settings/
+│   │   ├── SettingsWindow.xaml          # AI 配置 + 开机自启动
+│   │   └── SettingsWindow.xaml.cs
+│   └── Workflow/
+│       ├── Models/                      # ToolCallRecord, WorkflowDefinition, PatternMatch
+│       └── Services/                    # WorkflowRecorder, PatternDetector,
+│                                        # WorkflowStorageService, WorkflowExecutorService
+│   └── Scheduler/
+│       ├── Models/                      # ScheduledTask
+│       └── Services/                    # SchedulerService, SchedulerStorageService
 ├── Infrastructure/Common/
-│   ├── Helpers/                         # 通用转换器 (BoolToVisibilityConverter 等)
+│   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, 通用转换器
 │   └── Services/                        # TrayService, UserSettingsService
 ├── appsettings.json                     # Serilog 日志配置 (不入库)
 └── appsettings.template.json            # Serilog 模板 (入库)
