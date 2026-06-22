@@ -12,6 +12,8 @@ using OpenAI;
 using OpenAI.Chat;
 using Serilog;
 using PersonalAssistant.Features.Workflow.Services;
+using PersonalAssistant.Features.Scheduler.Models;
+using PersonalAssistant.Features.Scheduler.Services;
 using PersonalAssistant.Infrastructure.Common.Helpers;
 using PersonalAssistant.Infrastructure.Common.Services;
 
@@ -26,6 +28,7 @@ public class ChatAgentService
 {
     private readonly UserSettingsService _settings;
     private readonly WorkflowRecorder _recorder;
+    private readonly SchedulerStorageService _schedulerStorage;
 
     private ChatClientAgent? _agent;
     private AgentSession? _session;
@@ -153,10 +156,12 @@ public class ChatAgentService
         sb.AppendLine();
         sb.AppendLine("IMPORTANT - Scheduling:");
         sb.AppendLine("- When the user asks to schedule something daily (定时/计划/每天/定时任务),");
-        sb.AppendLine("  tell them to use: /schedule add \"HH:mm\" <tool> \"args\"");
-        sb.AppendLine("- Example: /schedule add \"09:00\" run_shell \"echo good morning\"");
+        sb.AppendLine("  use the add_schedule tool to create it directly.");
+        sb.AppendLine("- add_schedule(time, toolName, args): creates a daily task at the given HH:mm time.");
+        sb.AppendLine("  Example: add_schedule(\"09:00\", \"run_shell\", \"echo good morning\")");
+        sb.AppendLine("- Always confirm to the user what was scheduled after calling add_schedule.");
         sb.AppendLine("- NEVER use run_shell to create Windows Task Scheduler tasks (schtasks, Register-ScheduledTask).");
-        sb.AppendLine("  This app has its own built-in scheduler — use /schedule add instead.");
+        sb.AppendLine("  This app has its own built-in scheduler — use add_schedule instead.");
         sb.AppendLine();
         sb.AppendLine("Strategy - before sending keystrokes, ALWAYS verify the target:");
         sb.AppendLine("  1. window_info() to check which window has focus");
@@ -172,10 +177,12 @@ public class ChatAgentService
         return sb.ToString();
     }
 
-    public ChatAgentService(UserSettingsService settings, WorkflowRecorder recorder)
+    public ChatAgentService(UserSettingsService settings, WorkflowRecorder recorder,
+        SchedulerStorageService schedulerStorage)
     {
         _settings = settings;
         _recorder = recorder;
+        _schedulerStorage = schedulerStorage;
     }
 
     /// <summary>懒初始化 MAF Agent + Session，若 Key 未配置则返回错误</summary>
@@ -213,6 +220,7 @@ public class ChatAgentService
                 AIFunctionFactory.Create(new Func<string, string>(SendKeys), name: "send_keys"),
                 AIFunctionFactory.Create(new Func<string>(WindowInfo), name: "window_info"),
                 AIFunctionFactory.Create(new Func<string, string>(FocusWindow), name: "focus_window"),
+                AIFunctionFactory.Create(new Func<string, string, string, string>(AddSchedule), name: "add_schedule"),
             ]
         );
 
@@ -266,6 +274,7 @@ public class ChatAgentService
             "send_keys" => SendKeys(args),
             "window_info" => WindowInfo(),
             "focus_window" => FocusWindow(args),
+            "add_schedule" => AddSchedule(args, "", ""),
             _ => $"未知工具: {toolName}"
         };
         return Task.FromResult(result);
@@ -834,6 +843,50 @@ public class ChatAgentService
         }
 
         return false;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 工具: add_schedule — 创建每日定时任务
+    // ═══════════════════════════════════════════════════════════════
+
+    [Description(
+        "Create a daily scheduled task inside this app (NOT a Windows Task Scheduler task).\n" +
+        "Use this when the user wants to schedule something to run every day at a specific time.\n" +
+        "The app must be running for the task to execute. Each task runs at most once per day.\n" +
+        "Parameters:\n" +
+        "  time: HH:mm format (e.g., '09:00', '14:30')\n" +
+        "  toolName: one of the available tools (e.g., 'run_shell', 'run_command', 'web_fetch', etc.)\n" +
+        "  args: the arguments to pass to the tool")]
+    private string AddSchedule(
+        [Description("Time in HH:mm format, e.g. '09:00'")] string time,
+        [Description("Name of the tool to execute, e.g. 'run_shell', 'run_command'")] string toolName,
+        [Description("Arguments to pass to the tool")] string args)
+    {
+        _recorder.RecordStep("add_schedule", $"{time} {toolName} {args}");
+
+        if (!TimeSpan.TryParse(time, out var ts) || ts.TotalMinutes < 0 || ts.TotalDays >= 1)
+            return $"无效的时间格式: \"{time}\"。请使用 HH:mm 格式（如 09:00）。";
+
+        if (!SchedulerService.KnownTools.Contains(toolName))
+            return $"未知工具: \"{toolName}\"。已知工具: {string.Join(", ", SchedulerService.KnownTools.OrderBy(t => t))}";
+
+        var taskName = $"{toolName}_{time.Replace(":", "")}";
+
+        var task = new ScheduledTask
+        {
+            Name = taskName,
+            TimeOfDay = time,
+            ToolName = toolName,
+            ToolArgs = args,
+            IsEnabled = true,
+            CreatedAt = DateTime.Now
+        };
+        _schedulerStorage.Save(task);
+
+        Log.Information("[ChatAgent] 已创建定时任务: {Name} at {Time} → {Tool} {Args}",
+            taskName, time, toolName, args);
+
+        return $"定时任务已创建: 每天 {time} 执行 {toolName} {args}\n任务名称: {taskName}\n使用 /schedules 查看所有任务，/schedule delete \"{taskName}\" 删除。";
     }
 
 }
