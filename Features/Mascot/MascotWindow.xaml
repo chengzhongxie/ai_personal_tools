@@ -7,7 +7,7 @@
         Topmost="True"
         ShowInTaskbar="False"
         ResizeMode="NoResize"
-        Width="100" Height="120"
+        Width="100" Height="145"
         WindowStartupLocation="Manual"
         SnapsToDevicePixels="True"
         UseLayoutRounding="True">
@@ -27,6 +27,7 @@
 
     <Grid>
         <Canvas Width="100" Height="120"
+                Margin="0,24,0,0"
                 x:Name="RobotCanvas"
                 MouseEnter="RobotCanvas_MouseEnter"
                 MouseLeave="RobotCanvas_MouseLeave"

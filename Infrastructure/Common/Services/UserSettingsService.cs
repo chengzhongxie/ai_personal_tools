@@ -29,10 +29,10 @@ public class UserSettingsService
     public string ApiKey { get; set; } = string.Empty;
 
     /// <summary>模型名称</summary>
-    public string Model { get; set; } = "deepseek-chat";
+    public string Model { get; set; } = "deepseek-v4-flash";
 
-    /// <summary>API 端点地址</summary>
-    public string Endpoint { get; set; } = "https://api.deepseek.com/v1";
+    /// <summary>API 端点地址（OpenAI 兼容格式）</summary>
+    public string Endpoint { get; set; } = "https://api.deepseek.com";
 
     /// <summary>是否开机自启动</summary>
     public bool IsAutoStartEnabled { get; set; }
@@ -47,7 +47,7 @@ public class UserSettingsService
     public ChatSettings GetChatSettings() => new()
     {
         ApiKey = ApiKey,
-        Model = Model,
+        Model = Model.ToLowerInvariant(),
         Endpoint = Endpoint
     };
 
@@ -61,7 +61,7 @@ public class UserSettingsService
         var json = JsonSerializer.Serialize(new SettingsData
         {
             ApiKey = ApiKey,
-            Model = Model,
+            Model = Model.ToLowerInvariant(),
             Endpoint = Endpoint,
             IsAutoStartEnabled = IsAutoStartEnabled
         }, JsonOptions);
@@ -85,8 +85,8 @@ public class UserSettingsService
             if (data is not null)
             {
                 ApiKey = data.ApiKey ?? string.Empty;
-                Model = data.Model ?? "deepseek-chat";
-                Endpoint = data.Endpoint ?? "https://api.deepseek.com/v1";
+                Model = data.Model ?? "deepseek-v4-flash";
+                Endpoint = data.Endpoint ?? "https://api.deepseek.com";
                 IsAutoStartEnabled = data.IsAutoStartEnabled;
             }
         }

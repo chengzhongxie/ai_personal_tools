@@ -27,7 +27,7 @@ public partial class MascotWindow : Window
     private long _lastEyeTick;
 
     // 人偶中心
-    private readonly System.Windows.Point _robotCenter = new(50, 60);
+    private readonly System.Windows.Point _robotCenter = new(50, 84);
 
     // 预创建 Brush，避免重复分配
     private static readonly SolidColorBrush GlowGold = new(
@@ -70,7 +70,7 @@ public partial class MascotWindow : Window
         };
 
         Left = SystemParameters.WorkArea.Right - 120;
-        Top = SystemParameters.WorkArea.Bottom - 160;
+        Top = SystemParameters.WorkArea.Bottom - 185;
     }
 
     // ── 眼球追踪（节流）──

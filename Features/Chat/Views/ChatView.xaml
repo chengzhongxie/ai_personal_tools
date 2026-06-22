@@ -30,11 +30,6 @@
             <GradientStop Color="#7B73F5" Offset="1" />
         </LinearGradientBrush>
 
-        <!-- 暗色滚动条样式 -->
-        <Style TargetType="ScrollBar">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Width" Value="6" />
-        </Style>
     </UserControl.Resources>
 
     <Grid>
@@ -67,7 +62,7 @@
 
         <!-- Messages Area -->
         <ScrollViewer Grid.Row="1" x:Name="MessageScroll"
-                      VerticalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Hidden"
                       Background="#0B0E14">
             <ItemsControl ItemsSource="{Binding ViewModel.Messages}"
                           Margin="16,12">
@@ -110,11 +105,15 @@
                                 </Border.Style>
 
                                 <StackPanel>
-                                    <TextBlock Text="{Binding Content}"
-                                               TextWrapping="Wrap"
-                                               LineHeight="22">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
+                                    <TextBox Text="{Binding Content, Mode=OneWay}"
+                                             TextWrapping="Wrap"
+                                             IsReadOnly="True"
+                                             Cursor="IBeam"
+                                             BorderThickness="0"
+                                             Padding="0">
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox">
+                                                <Setter Property="Background" Value="Transparent" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding Role}" Value="User">
                                                         <Setter Property="Foreground" Value="#FFFFFF" />
@@ -134,8 +133,8 @@
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                        </TextBox.Style>
+                                    </TextBox>
 
                                     <!-- 时间戳 -->
                                     <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
