@@ -1,3 +1,4 @@
+using PersonalAssistant.Core.Interfaces;
 using PersonalAssistant.Features.Workflow.Models;
 
 namespace PersonalAssistant.Features.Workflow.Services;
@@ -5,15 +6,16 @@ namespace PersonalAssistant.Features.Workflow.Services;
 /// <summary>
 /// 工作流本地执行器。
 /// 回放已保存的工作流，直接调用工具逻辑而不经过 AI。
+/// 通过 IToolPluginHost 接口避免与 ChatAgentService 的循环依赖。
 /// 资源成本：仅执行时消耗（按需），无后台 CPU 开销。
 /// </summary>
 public class WorkflowExecutorService
 {
-    private readonly Chat.Services.ChatAgentService _agentService;
+    private readonly IToolPluginHost _pluginHost;
 
-    public WorkflowExecutorService(Chat.Services.ChatAgentService agentService)
+    public WorkflowExecutorService(IToolPluginHost pluginHost)
     {
-        _agentService = agentService;
+        _pluginHost = pluginHost;
     }
 
     /// <summary>
@@ -28,7 +30,7 @@ public class WorkflowExecutorService
         foreach (var step in workflow.Steps)
         {
             results.Add($"## {step.ToolName}");
-            var result = await _agentService.ExecuteToolStepAsync(step.ToolName, step.Args);
+            var result = await _pluginHost.ExecuteToolStepAsync(step.ToolName, step.Args);
             results.Add(result);
         }
 

@@ -11,6 +11,7 @@
 
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <helpers:MarkdownToFlowDocumentConverter x:Key="MarkdownToDoc" />
 
         <!-- 用户消息气泡渐变 -->
         <LinearGradientBrush x:Key="UserBubbleBrush" StartPoint="0,0" EndPoint="1,1">
@@ -105,23 +106,20 @@
                                 </Border.Style>
 
                                 <StackPanel>
-                                    <TextBox Text="{Binding Content, Mode=OneWay}"
-                                             TextWrapping="Wrap"
-                                             IsReadOnly="True"
-                                             Cursor="IBeam"
-                                             BorderThickness="0"
-                                             Padding="0">
-                                        <TextBox.Style>
-                                            <Style TargetType="TextBox">
+                                    <FlowDocumentScrollViewer
+                                        Document="{Binding Content, Mode=OneWay, Converter={StaticResource MarkdownToDoc}}"
+                                        BorderThickness="0" Padding="0"
+                                        HorizontalScrollBarVisibility="Hidden"
+                                        VerticalScrollBarVisibility="Auto"
+                                        MaxHeight="400">
+                                        <FlowDocumentScrollViewer.Style>
+                                            <Style TargetType="FlowDocumentScrollViewer">
+                                                <Setter Property="Foreground" Value="#D1D5DB" />
+                                                <Setter Property="FontSize" Value="13.5" />
                                                 <Setter Property="Background" Value="Transparent" />
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding Role}" Value="User">
                                                         <Setter Property="Foreground" Value="#FFFFFF" />
-                                                        <Setter Property="FontSize" Value="13.5" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                        <Setter Property="Foreground" Value="#D1D5DB" />
-                                                        <Setter Property="FontSize" Value="13.5" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="System">
                                                         <Setter Property="Foreground" Value="#6B7280" />
@@ -133,8 +131,8 @@
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBox.Style>
-                                    </TextBox>
+                                        </FlowDocumentScrollViewer.Style>
+                                    </FlowDocumentScrollViewer>
 
                                     <!-- 时间戳 -->
                                     <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"

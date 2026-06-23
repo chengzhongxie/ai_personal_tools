@@ -20,6 +20,7 @@ public class TrayService : IDisposable
         var contextMenu = new WinForms.ContextMenuStrip();
         contextMenu.Items.Add("显示主窗口", null, OnShowWindow);
         contextMenu.Items.Add("设置", null, OnOpenSettings);
+        contextMenu.Items.Add("插件管理", null, OnOpenPluginManagement);
         contextMenu.Items.Add(new WinForms.ToolStripSeparator());
         contextMenu.Items.Add("退出", null, OnExit);
 
@@ -33,6 +34,18 @@ public class TrayService : IDisposable
         _notifyIcon.DoubleClick += OnShowWindow;
     }
 
+    /// <summary>
+    /// 在系统托盘弹出气泡通知（供 AI notify 工具调用）。
+    /// </summary>
+    /// <param name="title">通知标题</param>
+    /// <param name="message">通知内容（最多 256 字符，超出自动截断）</param>
+    public void ShowNotification(string title, string message)
+    {
+        if (message.Length > 256)
+            message = message[..253] + "...";
+        _notifyIcon.ShowBalloonTip(5000, title, message, WinForms.ToolTipIcon.Info);
+    }
+
     private void OnShowWindow(object? sender, EventArgs e)
     {
         _serviceProvider.GetRequiredService<MainWindow>().ShowWindow();
@@ -43,6 +56,13 @@ public class TrayService : IDisposable
         var settingsWindow = _serviceProvider.GetRequiredService<
             Features.Settings.SettingsWindow>();
         settingsWindow.ShowDialog();
+    }
+
+    private void OnOpenPluginManagement(object? sender, EventArgs e)
+    {
+        var window = _serviceProvider.GetRequiredService<
+            Features.Plugins.PluginManagementWindow>();
+        window.ShowDialog();
     }
 
     private void OnExit(object? sender, EventArgs e)

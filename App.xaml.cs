@@ -3,6 +3,8 @@ using System.Windows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using PersonalAssistant.Core.Interfaces;
+using PersonalAssistant.Core.Services;
 using PersonalAssistant.Infrastructure.Common.Services;
 using Serilog;
 
@@ -47,19 +49,32 @@ public partial class App : Application
             })
             .ConfigureServices((context, services) =>
             {
-                // Configuration
-                // ChatSettings 不再从 appsettings.json 读取，改用 UserSettingsService
-                // Serilog 仍从 appsettings.json 读取
-
-                // Scrutor auto-scan: *Service → AsImplementedInterfaces, Singleton
+                // ═══════════════════════════════════════════════════════════
+                // 1. 自动扫描 IToolPlugin → As<IToolPlugin>() → Singleton
+                //    新增插件零 DI 配置 — 实现 IToolPlugin 即自动发现
+                // ═══════════════════════════════════════════════════════════
                 services.Scan(scan => scan
                     .FromApplicationDependencies(a =>
                         a.FullName!.StartsWith("PersonalAssistant"))
-                    .AddClasses(c => c.Where(t => t.Name.EndsWith("Service")))
+                    .AddClasses(c => c.AssignableTo<IToolPlugin>())
+                    .As<IToolPlugin>()
+                    .WithSingletonLifetime());
+
+                // ═══════════════════════════════════════════════════════════
+                // 2. 自动扫描 *Service（排除 IToolPlugin）→ AsImplementedInterfaces → Singleton
+                // ═══════════════════════════════════════════════════════════
+                services.Scan(scan => scan
+                    .FromApplicationDependencies(a =>
+                        a.FullName!.StartsWith("PersonalAssistant"))
+                    .AddClasses(c => c
+                        .Where(t => t.Name.EndsWith("Service")
+                            && !typeof(IToolPlugin).IsAssignableFrom(t)))
                     .AsImplementedInterfaces()
                     .WithSingletonLifetime());
 
-                // Scrutor auto-scan: *ViewModel / *View → AsSelf, Singleton
+                // ═══════════════════════════════════════════════════════════
+                // 3. 自动扫描 *ViewModel / *View → AsSelf → Singleton
+                // ═══════════════════════════════════════════════════════════
                 services.Scan(scan => scan
                     .FromApplicationDependencies(a =>
                         a.FullName!.StartsWith("PersonalAssistant"))
@@ -68,26 +83,54 @@ public partial class App : Application
                     .AsSelf()
                     .WithSingletonLifetime());
 
-                // Manual registrations (classes without interfaces, or
-                // that need explicit self-registration)
+                // ═══════════════════════════════════════════════════════════
+                // 4. 手动注册：无接口的具体类 + 平台核心组件
+                // ═══════════════════════════════════════════════════════════
+
+                // 用户设置（无接口）
                 services.AddSingleton<UserSettingsService>();
+
+                // 插件状态持久化（无接口，必须在 PluginAggregator 之前注册）
+                services.AddSingleton<PluginStateService>();
+
+                // 托盘服务（无接口，需提前初始化）
                 services.AddSingleton<TrayService>();
+
+                // 本地 LLM 模型服务（无接口，IDisposable）
+                services.AddSingleton<Features.Chat.Services.LocalModelService>();
+
+                // 模型路由服务（自动判断本地/远程，无接口）
+                services.AddSingleton<Features.Chat.Services.ModelRoutingService>();
+
+                // 工作流 / 学习能力服务（无接口）
+                services.AddSingleton<Features.Workflow.Services.WorkflowRecorder>();
+                services.AddSingleton<Features.Workflow.Services.PatternDetector>();
+                services.AddSingleton<Features.Workflow.Services.WorkflowStorageService>();
+                services.AddSingleton<Features.Workflow.Services.WorkflowExecutorService>();
+
+                // 定时任务服务（无接口）
+                services.AddSingleton<Features.Scheduler.Services.SchedulerStorageService>();
+                services.AddSingleton<Features.Scheduler.Services.SchedulerService>();
+
+                // MAF 聊天代理（无接口）
+                services.AddSingleton<Features.Chat.Services.ChatAgentService>();
+
+                // 插件聚合器：实现 IToolPluginHost + IDangerousToolPolicy
+                services.AddSingleton<PluginAggregator>();
+                services.AddSingleton<IToolPluginHost>(sp => sp.GetRequiredService<PluginAggregator>());
+                services.AddSingleton<IDangerousToolPolicy>(sp => sp.GetRequiredService<PluginAggregator>());
+
+                // 外部插件加载器
+                services.AddSingleton<Core.Plugins.PluginLoader>();
+
+                // 插件间共享状态
+                services.AddSingleton<PluginSharedState>();
+
+                // Window 类
                 services.AddSingleton<MainWindow>();
-                services.AddSingleton<PersonalAssistant.Features.Mascot.MascotWindow>();
-                services.AddTransient<PersonalAssistant.Features.Settings.SettingsWindow>();
-
-                // MAF-based chat agent (replaces old IChatService/ChatService)
-                services.AddSingleton<PersonalAssistant.Features.Chat.Services.ChatAgentService>();
-
-                // Workflow / learning ability services
-                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.WorkflowRecorder>();
-                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.PatternDetector>();
-                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.WorkflowStorageService>();
-                services.AddSingleton<PersonalAssistant.Features.Workflow.Services.WorkflowExecutorService>();
-
-                // Scheduler services
-                services.AddSingleton<PersonalAssistant.Features.Scheduler.Services.SchedulerStorageService>();
-                services.AddSingleton<PersonalAssistant.Features.Scheduler.Services.SchedulerService>();
+                services.AddSingleton<Features.Mascot.MascotWindow>();
+                services.AddTransient<Features.Settings.SettingsWindow>();
+                services.AddTransient<Features.Plugins.PluginManagementWindow>();
             })
             .Build();
 
@@ -111,7 +154,26 @@ public partial class App : Application
         Services.GetRequiredService<TrayService>();
 
         // 触发 SchedulerService 初始化（启动定时器）
-        Services.GetRequiredService<PersonalAssistant.Features.Scheduler.Services.SchedulerService>();
+        Services.GetRequiredService<Features.Scheduler.Services.SchedulerService>();
+
+        // 后台预热本地模型（下载/加载，不阻塞 UI）
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var localModel = Services.GetRequiredService<
+                    Features.Chat.Services.LocalModelService>();
+                var result = await localModel.EnsureModelAvailableAsync();
+                if (result is null)
+                    Log.Information("[App] 本地模型预热完成");
+                else
+                    Log.Warning("[App] 本地模型预热未完成: {Msg}", result);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "[App] 本地模型预热异常");
+            }
+        });
 
         base.OnStartup(e);
     }
