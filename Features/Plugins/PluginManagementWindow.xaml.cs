@@ -80,7 +80,9 @@ public partial class PluginManagementWindow : Window
             return;
 
         _pluginState.SetEnabled(info.Name, info.IsEnabled);
-        RestartTip.Visibility = Visibility.Visible;
+
+        // 运行时同步：无需重启即可生效
+        _pluginAggregator.RefreshActivePlugins();
     }
 
     private void DeletePlugin_Click(object sender, RoutedEventArgs e)

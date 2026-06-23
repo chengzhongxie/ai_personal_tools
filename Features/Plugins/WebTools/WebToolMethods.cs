@@ -1,8 +1,8 @@
 using System.ComponentModel;
 using System.Net.Http;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Web;
+using HtmlAgilityPack;
 
 namespace PersonalAssistant.Features.Plugins.WebTools;
 
@@ -77,27 +77,37 @@ internal static class WebToolMethods
         }
     }
 
+    /// <summary>
+    /// 使用 HtmlAgilityPack 解析 DuckDuckGo 搜索结果。
+    /// 比正则表达式更健壮，正确处理格式错误的 HTML。
+    /// </summary>
     private static List<(string title, string snippet, string url)> ParseDdgResults(string html)
     {
         var results = new List<(string title, string snippet, string url)>();
 
-        var linkMatches = Regex.Matches(html,
-            @"<a[^>]*class=""result__a""[^>]*href=""([^""]+)""[^>]*>([^<]+)</a>",
-            RegexOptions.Singleline);
-        var snippetMatches = Regex.Matches(html,
-            @"<a[^>]*class=""result__snippet""[^>]*>([^<]*(?:<[^/][^>]*>[^<]*</[^>]*>[^<]*)*)</a>",
-            RegexOptions.Singleline);
+        var doc = new HtmlDocument();
+        doc.LoadHtml(html);
 
-        for (int i = 0; i < linkMatches.Count && i < 10; i++)
+        var resultNodes = doc.DocumentNode.SelectNodes(
+            "//div[contains(@class,'result__body')]");
+
+        if (resultNodes is null)
+            return results;
+
+        foreach (var node in resultNodes)
         {
-            var url = linkMatches[i].Groups[1].Value;
-            var title = linkMatches[i].Groups[2].Value;
-            var snippet = i < snippetMatches.Count
-                ? StripTags(snippetMatches[i].Groups[1].Value)
-                : "";
+            if (results.Count >= 10)
+                break;
 
-            if (!string.IsNullOrWhiteSpace(title))
-                results.Add((title.Trim(), snippet.Trim(), url.Trim()));
+            var linkNode = node.SelectSingleNode(".//a[contains(@class,'result__a')]");
+            var snippetNode = node.SelectSingleNode(".//a[contains(@class,'result__snippet')]");
+
+            var url = linkNode?.GetAttributeValue("href", "");
+            var title = linkNode?.InnerText.Trim() ?? "";
+            var snippet = snippetNode?.InnerText.Trim() ?? "";
+
+            if (!string.IsNullOrWhiteSpace(title) && !string.IsNullOrWhiteSpace(url))
+                results.Add((title, snippet, url));
         }
 
         return results;
@@ -105,7 +115,4 @@ internal static class WebToolMethods
 
     private static string HtmlDecode(string text) =>
         HttpUtility.HtmlDecode(text).Trim();
-
-    private static string StripTags(string html) =>
-        Regex.Replace(html, @"<[^>]+>", "");
 }

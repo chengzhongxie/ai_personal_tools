@@ -2,6 +2,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using PersonalAssistant.Features.Chat.Models;
+using Serilog;
 
 namespace PersonalAssistant.Infrastructure.Common.Services;
 
@@ -67,8 +68,9 @@ public class ChatHistoryService : IChatHistoryService
             return JsonSerializer.Deserialize<List<ChatMessage>>(json, JsonOptions)
                    ?? new List<ChatMessage>();
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Warning(ex, "[ChatHistory] 加载历史记录失败，将使用空列表");
             return new List<ChatMessage>();
         }
     }

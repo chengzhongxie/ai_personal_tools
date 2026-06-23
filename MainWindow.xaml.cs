@@ -64,14 +64,16 @@ public partial class MainWindow : FluentWindow
         var hwnd = new WindowInteropHelper(this).Handle;
         if (!RegisterHotKey(hwnd, HOTKEY_ID, MOD_ALT, VK_SPACE))
         {
-            // 热键可能被其他程序占用（如 PowerToys），静默失败
-            System.Diagnostics.Debug.WriteLine("Failed to register Alt+Space hotkey");
+            // 热键可能被其他程序占用（如 PowerToys），通过托盘提示用户
+            _trayService.ShowNotification("热键注册失败",
+                "Alt+Space 被其他程序占用（如 PowerToys），全局热键不可用");
         }
 
         // 注册 Ctrl+Alt+Space：在任何应用中选中文本后按下，将文本发送给 AI 处理
         if (!RegisterHotKey(hwnd, HOTKEY_SELTEXT, MOD_CTRL_ALT, VK_SPACE))
         {
-            System.Diagnostics.Debug.WriteLine("Failed to register Ctrl+Alt+Space hotkey");
+            _trayService.ShowNotification("热键注册失败",
+                "Ctrl+Alt+Space 被其他程序占用，选中文本快捷发送不可用");
         }
 
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);
@@ -100,51 +102,74 @@ public partial class MainWindow : FluentWindow
     /// 处理选中文本快捷操作（Ctrl+Alt+Space）：
     /// 模拟 Ctrl+C 复制选中文本 → 读取剪贴板 → 显示主窗口并填入输入框
     /// </summary>
-    private async void HandleSelectedText()
+    private void HandleSelectedText()
     {
-        // 1. 保存原始剪贴板内容，发送 Ctrl+C 获取选中文本
-        string? originalClipboard = null;
-        await Application.Current.Dispatcher.InvokeAsync(() =>
+        _ = HandleSelectedTextAsync();
+    }
+
+    private async Task HandleSelectedTextAsync()
+    {
+        try
         {
-            if (System.Windows.Clipboard.ContainsText())
-                originalClipboard = System.Windows.Clipboard.GetText();
-        });
-
-        // 2. 模拟 Ctrl+C
-        keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_C, 0, 0, UIntPtr.Zero);
-        keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-
-        // 3. 等待剪贴板更新
-        await Task.Delay(80);
-
-        // 4. 读取剪贴板
-        string? selectedText = null;
-        await Application.Current.Dispatcher.InvokeAsync(() =>
-        {
-            if (System.Windows.Clipboard.ContainsText())
-                selectedText = System.Windows.Clipboard.GetText();
-        });
-
-        // 5. 恢复原始剪贴板
-        if (originalClipboard is not null)
-        {
+            // 1. 保存原始剪贴板内容，发送 Ctrl+C 获取选中文本
+            string? originalClipboard = null;
             await Application.Current.Dispatcher.InvokeAsync(() =>
-                System.Windows.Clipboard.SetText(originalClipboard));
+            {
+                try
+                {
+                    if (System.Windows.Clipboard.ContainsText())
+                        originalClipboard = System.Windows.Clipboard.GetText();
+                }
+                catch (System.Runtime.InteropServices.COMException) { /* 剪贴板被其他进程占用 */ }
+            });
+
+            // 2. 模拟 Ctrl+C
+            keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
+            keybd_event(VK_C, 0, 0, UIntPtr.Zero);
+            keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+
+            // 3. 等待剪贴板更新
+            await Task.Delay(80);
+
+            // 4. 读取剪贴板
+            string? selectedText = null;
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                try
+                {
+                    if (System.Windows.Clipboard.ContainsText())
+                        selectedText = System.Windows.Clipboard.GetText();
+                }
+                catch (System.Runtime.InteropServices.COMException) { /* 剪贴板被其他进程占用 */ }
+            });
+
+            // 5. 恢复原始剪贴板
+            if (originalClipboard is not null)
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    try { System.Windows.Clipboard.SetText(originalClipboard); }
+                    catch (System.Runtime.InteropServices.COMException) { }
+                });
+            }
+
+            // 6. 如果没有选中文本，静默返回
+            if (string.IsNullOrWhiteSpace(selectedText))
+                return;
+
+            // 7. 显示主窗口并填入文本
+            Dispatcher.Invoke(() =>
+            {
+                ShowWindow();
+                ChatViewControl.ViewModel.InputText = selectedText;
+                ChatViewControl.FocusInput();
+            });
         }
-
-        // 6. 如果没有选中文本，静默返回
-        if (string.IsNullOrWhiteSpace(selectedText))
-            return;
-
-        // 7. 显示主窗口并填入文本
-        Dispatcher.Invoke(() =>
+        catch (Exception ex)
         {
-            ShowWindow();
-            ChatViewControl.ViewModel.InputText = selectedText;
-            ChatViewControl.FocusInput();
-        });
+            Serilog.Log.Warning(ex, "[MainWindow] HandleSelectedText 异常");
+        }
     }
 
     /// <summary>切换窗口显示/隐藏（全局热键回调）</summary>

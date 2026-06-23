@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using PersonalAssistant.Core.Interfaces;
+using Serilog;
 
 namespace PersonalAssistant.Features.Plugins.SystemTools;
 
@@ -85,7 +86,7 @@ internal static class SystemToolMethods
         "System operations: Clear-RecycleBin -Force, Get-Service, Stop-Process, etc.\n" +
         "Do NOT use for: launching GUI programs (use run_command instead).\n" +
         "Timeout: 15 seconds. Max output: ~100KB.")]
-    public static string RunShell(
+    public static async Task<string> RunShellAsync(
         [Description("PowerShell command to execute")] string command,
         IDangerousToolPolicy policy)
     {
@@ -108,13 +109,19 @@ internal static class SystemToolMethods
             psi.ArgumentList.Add(command);
 
             using var process = Process.Start(psi)!;
-            var output = process.StandardOutput.ReadToEnd();
-            var error = process.StandardError.ReadToEnd();
+
+            // 并行读取 stdout 和 stderr，防止缓冲区满导致死锁
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+
             if (!process.WaitForExit(15000))
             {
                 process.Kill(entireProcessTree: true);
                 return "错误: 命令执行超时 (15秒)";
             }
+
+            var output = await outputTask;
+            var error = await errorTask;
 
             var result = output;
             if (!string.IsNullOrWhiteSpace(error))
@@ -235,8 +242,9 @@ internal static class SystemToolMethods
             string target = shortcut.TargetPath;
             return target;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug(ex, "[SystemTools] 快捷方式解析失败: {Link}", linkPath);
             return null;
         }
     }

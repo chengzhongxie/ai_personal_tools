@@ -9,18 +9,25 @@ namespace PersonalAssistant.Features.Chat.Services;
 /// </summary>
 internal static class ChatSystemPrompt
 {
-    private static string? _cachedPrompt;
-    private static string? _cachedPluginFragments;
+    private static volatile string? _cachedPrompt;
+    private static volatile string? _cachedPluginFragments;
+    private static readonly Lock _lock = new();
 
     /// <summary>
-    /// 构建或返回缓存的系统提示词。
+    /// 构建或返回缓存的系统提示词（线程安全）。
     /// </summary>
     /// <param name="pluginPromptFragments">各插件提供的提示词片段（聚合后的文本）</param>
     public static string GetPrompt(string pluginPromptFragments)
     {
-        // 如果插件提示词片段没变，返回缓存
+        // 快速路径：volatile 读检查，大部分调用命中缓存直接返回
         if (_cachedPrompt is not null && pluginPromptFragments == _cachedPluginFragments)
             return _cachedPrompt;
+
+        lock (_lock)
+        {
+            // 双重检查：锁内再次验证
+            if (_cachedPrompt is not null && pluginPromptFragments == _cachedPluginFragments)
+                return _cachedPrompt;
 
         var cwd = Environment.CurrentDirectory;
         var browsers = BrowserDetector.Detect();
@@ -135,5 +142,6 @@ internal static class ChatSystemPrompt
         _cachedPluginFragments = pluginPromptFragments;
         _cachedPrompt = sb.ToString();
         return _cachedPrompt;
+        } // lock
     }
 }

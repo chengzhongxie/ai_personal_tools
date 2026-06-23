@@ -27,7 +27,7 @@ public class SystemToolsPlugin : IToolPlugin
             AIFunctionFactory.Create(new Func<string, string>(ReadFile), name: "read_file"),
             AIFunctionFactory.Create(new Func<string, string, string>(WriteFileWrapper), name: "write_file"),
             AIFunctionFactory.Create(new Func<string?, string>(ListFiles), name: "list_files"),
-            AIFunctionFactory.Create(new Func<string, string>(RunShellWrapper), name: "run_shell"),
+            AIFunctionFactory.Create(new Func<string, Task<string>>(RunShellWrapper), name: "run_shell"),
             AIFunctionFactory.Create(new Func<string, string?, string>(RunCommand), name: "run_command"),
             AIFunctionFactory.Create(new Func<string, string>(FindApp), name: "find_app"),
             AIFunctionFactory.Create(new Func<string, string>(SendKeys), name: "send_keys"),
@@ -40,14 +40,14 @@ public class SystemToolsPlugin : IToolPlugin
         };
     }
 
-    public Task<string?> TryExecuteToolAsync(string toolName, string args)
+    public async Task<string?> TryExecuteToolAsync(string toolName, string args)
     {
         string? result = toolName switch
         {
             "read_file" => SystemToolMethods.ReadFile(args),
             "write_file" => SystemToolMethods.WriteFile(args, "", _policy),
             "list_files" => SystemToolMethods.ListFiles(string.IsNullOrEmpty(args) ? null : args),
-            "run_shell" => SystemToolMethods.RunShell(args, _policy),
+            "run_shell" => await SystemToolMethods.RunShellAsync(args, _policy),
             "run_command" => SystemToolMethods.RunCommand(args, null),
             "find_app" => SystemToolMethods.FindApp(args),
             "send_keys" => SystemToolMethods.SendKeys(args),
@@ -60,34 +60,16 @@ public class SystemToolsPlugin : IToolPlugin
             _ => null
         };
 
-        return Task.FromResult(result);
+        return result;
     }
 
     public string? GetPromptFragment() => null; // System prompt is built centrally in ChatSystemPrompt
 
-    // Wrapper methods for AIFunction creation (close over _policy)
-    private string WriteFileWrapper(string path, string content) =>
-        SystemToolMethods.WriteFile(path, content, _policy);
-
-    private string RunShellWrapper(string command) =>
-        SystemToolMethods.RunShell(command, _policy);
-
-    // Direct delegate wrappers matching the [Description] attributes on SystemToolMethods
-    [Description("Read the contents of a file at the given path")]
-    private static string ReadFile(
-        [Description("Absolute or relative path to the file")] string path) =>
-        SystemToolMethods.ReadFile(path);
-
     [Description("Write text content to a file. Creates parent directories if needed.")]
-    private string WriteFileWrapper2(
+    private string WriteFileWrapper(
         [Description("Path where the file should be written")] string path,
         [Description("Text content to write to the file")] string content) =>
         SystemToolMethods.WriteFile(path, content, _policy);
-
-    [Description("List files and subdirectories in a directory. Defaults to current directory if omitted.")]
-    private static string ListFiles(
-        [Description("Directory path to list")] string? path = null) =>
-        SystemToolMethods.ListFiles(path);
 
     [Description(
         "Execute a PowerShell command and return its captured output.\n" +
@@ -96,9 +78,21 @@ public class SystemToolsPlugin : IToolPlugin
         "System operations: Clear-RecycleBin -Force, Get-Service, Stop-Process, etc.\n" +
         "Do NOT use for: launching GUI programs (use run_command instead).\n" +
         "Timeout: 15 seconds. Max output: ~100KB.")]
-    private string RunShellWrapper2(
+    private Task<string> RunShellWrapper(
         [Description("PowerShell command to execute")] string command) =>
-        SystemToolMethods.RunShell(command, _policy);
+        SystemToolMethods.RunShellAsync(command, _policy);
+
+    // Direct delegate wrappers matching the [Description] attributes on SystemToolMethods
+    [Description("Read the contents of a file at the given path")]
+    private static string ReadFile(
+        [Description("Absolute or relative path to the file")] string path) =>
+        SystemToolMethods.ReadFile(path);
+
+
+    [Description("List files and subdirectories in a directory. Defaults to current directory if omitted.")]
+    private static string ListFiles(
+        [Description("Directory path to list")] string? path = null) =>
+        SystemToolMethods.ListFiles(path);
 
     [Description(
         "Launch a program or open a file/URL using Windows Shell (ShellExecute).\n" +

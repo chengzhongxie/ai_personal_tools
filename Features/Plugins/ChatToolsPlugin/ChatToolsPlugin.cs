@@ -37,18 +37,18 @@ public class ChatToolsPlugin : IToolPlugin
     {
         string? result = toolName switch
         {
-            "clear_chat" => ChatToolMethods.ClearChat(_sharedState.OnClearChat),
+            "clear_chat" => ChatToolMethods.ClearChat(() => _sharedState.RaiseClearChat()),
             "notify" => ChatToolMethods.Notify(args, "", _trayService),
             _ => null
         };
 
-        return Task.FromResult(result);
+        return Task.FromResult<string?>(result);
     }
 
     public string? GetPromptFragment() => null;
 
     [Description("Clear the current conversation history and reset the pattern detector.")]
-    private string ClearChat() => ChatToolMethods.ClearChat(_sharedState.OnClearChat);
+    private string ClearChat() => ChatToolMethods.ClearChat(() => _sharedState.RaiseClearChat());
 
     [Description(
         "Show a Windows toast balloon notification from the system tray.\n" +

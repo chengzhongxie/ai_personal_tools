@@ -158,18 +158,18 @@ public sealed class PluginToolDefinition
 }
 ```
 
-**资源成本：** 启动时一次性 ~50-200ms CPU（Roslyn 编译），用完 GC。之后零开销。
+**资源成本：** 启动时一次性 ~50-200ms CPU（Roslyn 编译，AssemblyLoadContext 隔离加载），用完 GC。之后零开销。支持 collectible 卸载（热重载就绪）。
 
 ## 功能模块
 
 ### Chat
-- **ChatAgentService**：~130 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming()` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
-- **ChatSystemPrompt**：系统提示词构建器（从 ChatAgentService.Prompt.cs 提取）。基础提示词 + 聚合所有插件的提示词片段。带缓存（插件片段不变则复用）。
-- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话历史持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示。消息上限 200 条自动修剪。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService。
+- **ChatAgentService**：~140 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(ct)` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose）。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
+- **ChatSystemPrompt**：系统提示词构建器（从 ChatAgentService.Prompt.cs 提取）。基础提示词 + 聚合所有插件的提示词片段。线程安全锁保护缓存（双重检查锁定），插件片段不变则复用（零分配）。
+- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话历史持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService。
 - **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。
-- **ChatView**：WPF 深色科技风聊天界面（Markdown 渲染、代码高亮、消息气泡、输入框、加载动画），无 DropShadowEffect。Markdig.Wpf 解析 Markdown → FlowDocument，AI 回复支持代码块语法高亮、列表、表格、加粗等
-- **ChatHistoryService**：对话历史持久化到 `%APPDATA%\PersonalAssistant\chat_history.json`（仅 UI 恢复，不回放 AI 会话），跳过 System 角色消息，最多 200 条
-- **LocalModelService**：封装 LLamaSharp 加载 Qwen2.5-0.5B-Instruct GGUF 本地模型。`InferAsync(prompt, maxTokens?, systemPrompt?)` 提供单轮无状态推理。延迟初始化（首次调用才加载），`SemaphoreSlim(1,1)` 保证线程安全，`IDisposable` 释放 `LLamaWeights`/`LLamaContext`。模型随程序打包（`Assets/` → `CopyToOutputDirectory`），首次启动自动部署到 `%APPDATA%/PersonalAssistant/models/`。资源成本：首次加载 ~550MB 内存（模型 + KV Cache），空闲时仅内存驻留，无 CPU 消耗。
+- **ChatView**：WPF 深色科技风聊天界面（Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。Markdig.Wpf 解析 Markdown → FlowDocument，AI 回复支持代码块语法高亮、列表、表格、加粗等。支持 Up/Down 箭头导航输入历史
+- **ChatHistoryService**：对话历史持久化到 `%APPDATA%\PersonalAssistant\chat_history.json`（仅 UI 恢复，不回放 AI 会话），跳过 System 角色消息，最多 200 条。加载失败时记录 warning 日志并降级为空列表
+- **LocalModelService**：封装 LLamaSharp 加载 Qwen2.5-0.5B-Instruct GGUF 本地模型。`InferAsync(prompt, maxTokens?, systemPrompt?, ct)` 提供单轮无状态推理。延迟初始化（首次调用才加载），`SemaphoreSlim(1,1)` 保证线程安全，`IDisposable` 释放 `LLamaWeights`/`LLamaContext`。模型获取优先级：%APPDATA% → 打包目录自动部署 → 多镜像自动下载（model_sources.json 配置，带进度报告）。资源成本：首次加载 ~550MB 内存（模型 + KV Cache），空闲时仅内存驻留，无 CPU 消耗。
 - **ModelRoutingService**：3 层漏斗精准模型路由。L1 快速预判（极短/明显需工具）→ L2 本地 Qwen 0.5B 语义意图分类（conversation/question → 本地 / action/creation/system → 远程）→ L3 语义质量评估（不合格自动回退远程）。本地分类阶段 MaxTokens=10，约 1-2s。资源成本：按需消耗，空闲时零开销。
 - **工具调用确认**：高危工具（run_shell, write_file, delete_workflow, delete_schedule）执行前弹窗确认。`IDangerousToolPolicy.DangerConfirmation` 委托在 ChatViewModel 中设置，通过 `Dispatcher.Invoke` 封送到 UI 线程显示 MessageBox。确认机制为本地代码逻辑，零 token 消耗。
 
@@ -181,9 +181,9 @@ public sealed class PluginToolDefinition
 | 插件 | 文件 | 工具数 | 说明 |
 |------|------|--------|------|
 | **SystemToolsPlugin** | `Plugins/SystemTools/` | 13 | read_file, write_file, list_files, run_shell, run_command, find_app, send_keys, type_text, window_info, focus_window, read_clipboard, write_clipboard, search_files。Win32 P/Invoke 提取到独立 `Win32Native.cs` |
-| **WebToolsPlugin** | `Plugins/WebTools/` | 2 | web_fetch, web_search (DuckDuckGo) |
+| **WebToolsPlugin** | `Plugins/WebTools/` | 2 | web_fetch, web_search (DuckDuckGo, HtmlAgilityPack 解析) |
 | **SystemInfoPlugin** | `Plugins/SystemInfoPlugin/` | 2 | system_info, screenshot + Windows OCR |
-| **ChatToolsPlugin** | `Plugins/ChatToolsPlugin/` | 2 | clear_chat (通过 PluginSharedState.OnClearChat 回调), notify |
+| **ChatToolsPlugin** | `Plugins/ChatToolsPlugin/` | 2 | clear_chat (通过 PluginSharedState.RaiseClearChat 事件), notify |
 | **SchedulerPlugin** | `Plugins/SchedulerPlugin/` | 3 | add_schedule, list_schedules, delete_schedule |
 | **WorkflowPlugin** | `Plugins/WorkflowPlugin/` | 4 | list_workflows, run_workflow, delete_workflow, save_workflow |
 | **LocalLLMPlugin** | `Plugins/LocalLLMPlugin/` | 1 | local_llm (Qwen2.5-0.5B 本地推理) |
@@ -193,21 +193,21 @@ public sealed class PluginToolDefinition
 
 | 组件 | 位置 | 说明 |
 |------|------|------|
-| **PluginAggregator** | `Core/Services/` | 中心枢纽：实现 IToolPluginHost + IDangerousToolPolicy。通过 DI `IEnumerable<IToolPlugin>` 自动发现所有内置插件 + PluginLoader 加载外部插件。外部插件优先。双列表（_allPlugins / _activePlugins），AllPlugins 属性暴露完整列表供管理窗口。内建 WorkflowRecorder 透明录制 + 危险工具确认策略 |
-| **PluginSharedState** | `Core/Services/` | 插件间共享状态（PendingSuggestion, OnClearChat 回调） |
+| **PluginAggregator** | `Core/Services/` | 中心枢纽：实现 IToolPluginHost + IDangerousToolPolicy。通过 DI `IEnumerable<IToolPlugin>` 自动发现所有内置插件 + PluginLoader 加载外部插件。外部插件优先。双列表（_allPlugins / _activePlugins），AllPlugins 属性暴露完整列表供管理窗口。内建 WorkflowRecorder 透明录制 + 危险工具确认策略。GetAllTools 带缓存（插件变更自动失效），ExecuteToolStepAsync 每插件独立 try-catch，RefreshActivePlugins() 支持运行时免重启同步 |
+| **PluginSharedState** | `Core/Services/` | 插件间共享状态（PendingSuggestion, OnClearChat 事件 + RaiseClearChat 触发方法） |
 | **PluginBase** | `Core/Plugins/` | 外部插件基类（PluginBase + PluginToolDefinition + PluginParameter DTO），零外部依赖 |
 | **PluginLoader** | `Core/Plugins/` | Roslyn 编译 %APPDATA%\PersonalAssistant\Plugins\*.cs → 反射发现 PluginBase 子类 → 实例化 |
 | **ExternalPluginAdapter** | `Core/Plugins/` | PluginBase → IToolPlugin 桥接，运行时 AIFunctionFactory.Create 生成 AIFunction[]。暴露 SourcePlugin 属性供管理窗口枚举 |
 | **PluginStateService** | `Infrastructure/Common/Services/` | 插件启用/禁用状态持久化（HashSet + JSON），零定时器/线程，空闲时零开销 |
 
 ### Workflow（学习能力）
-- **WorkflowRecorder**：录制每轮对话中的工具调用序列（工具名列表）。录制由 PluginAggregator 透明处理。
+- **WorkflowRecorder**：录制每轮对话中的工具调用序列（工具名列表）。线程安全（lock 保护），录制由 PluginAggregator 透明处理。
 - **PatternDetector**：最近 50 轮环形缓冲 + 序列匹配（≥3 次重复）→ 触发建议。已建议的序列不重复提示（`_shownKeys` HashSet）
 - **WorkflowStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\workflows\` 目录
 - **WorkflowExecutorService**：本地回放已保存工作流，不调用 AI，通过 `IToolPluginHost.ExecuteToolStepAsync()` 执行
 
 ### Scheduler（定时任务）
-- **SchedulerService**：System.Threading.Timer 30s 间隔检查，SemaphoreSlim 防重入，匹配 HH:mm → 检查 LastRunDate → IToolPluginHost.ExecuteToolStepAsync → 更新 LastRunDate。IDisposable 清理 Timer + Semaphore。依赖 IToolPluginHost（不再依赖 ChatAgentService）
+- **SchedulerService**：System.Threading.Timer 30s 间隔检查，SemaphoreSlim 防重入，匹配 HH:mm → 检查 LastRunDate → IToolPluginHost.ExecuteToolStepAsync → 更新 LastRunDate。任务列表内存缓存（5 分钟刷新），避免每次 Tick 读取磁盘。IDisposable 清理 Timer + Semaphore。依赖 IToolPluginHost（不再依赖 ChatAgentService）
 - **SchedulerStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\schedules\` 目录
 - **ScheduledTask**：POCO 模型（Name, TimeOfDay, ToolName, ToolArgs, IsEnabled, CreatedAt, LastRunDate）
 
@@ -254,6 +254,7 @@ public sealed class PluginToolDefinition
 - **全局快捷键**：
   - `Alt+Space`：切换主窗口显示/隐藏（Win32 RegisterHotKey + WndProc hook），无后台轮询开销
   - `Ctrl+Alt+Space`：在任何应用中选中文本后按下 → 模拟 Ctrl+C 复制 → 恢复原始剪贴板 → 显示主窗口并填入选中文本，用户可添加指令后发送给 AI
+- 热键注册失败时通过托盘气泡通知用户（如被 PowerToys 占用）
 - 关闭/最小化主窗口 → 显示悬浮窗（右下角，始终置顶，正弦浮动动画）
 
 ### Mascot
@@ -269,7 +270,7 @@ public sealed class PluginToolDefinition
 
 ### Tray
 - **TrayService**：系统托盘图标（代码绘制蓝紫渐变 "AI" 图标）+ 右键菜单（显示主窗口、设置、插件管理、退出）
-- **UserSettingsService**：管理用户级配置（API Key/Model/Endpoint/AutoStart），含注册表操作
+- **UserSettingsService**：管理用户级配置（API Key/Model/Endpoint/AutoStart），含注册表操作。配置文件损坏时记录警告并降级为默认值
 
 ## 性能约束 + 低功耗设计（强制）
 
@@ -301,12 +302,12 @@ public sealed class PluginToolDefinition
 
 ### 插件系统资源评估
 - **IToolPlugin 实例（7个）**：~14个单例对象，无定时器/线程，空闲时零开销
-- **PluginAggregator**：1个单例，持有 List<IToolPlugin>，ExecuteToolStepAsync 线性扫描 O(7)
+- **PluginAggregator**：1个单例，持有 2 个 List（_allPlugins + _activePlugins），GetAllTools 带缓存（零分配直到失效），ExecuteToolStepAsync 线性扫描 O(n)，每插件独立 try-catch
 - **录制包装**：WorkflowRecorder 引用，每次工具调用一次 RecordStep()
 - **DI 扫描**：启动时 ~1ms 反射扫描，零运行时开销
 
 ### 学习能力资源评估
-- **WorkflowRecorder**：近似零开销（仅追加到 `List<string>`，每轮对话清空）
+- **WorkflowRecorder**：近似零开销（lock 内 O(1) List 追加，每轮对话清空）
 - **PatternDetector**：按需消耗（仅在每轮结束时做 O(n) 序列匹配，n ≤ 50）
 - **WorkflowStorageService**：按需消耗（仅读写时触发磁盘 I/O）
 - **WorkflowExecutorService**：按需消耗（仅 run_workflow 调用时执行，不调 AI）
@@ -315,7 +316,7 @@ public sealed class PluginToolDefinition
 - **LocalModelService**：首次加载 ~550MB 内存（模型 + 1024 context KV Cache），空闲时零 CPU。推理时 CPU 按需消耗（~0.5B 参数，单轮 <5s），单线程 SemaphoreSlim 限流。
 
 ### 定时任务资源评估
-- **SchedulerService**：30s 定时器 Tick 检查（O(1) 字符串比较），无任务时 CPU 趋近零
+- **SchedulerService**：30s 定时器 Tick 检查（O(1) 内存缓存比较），5 分钟刷新一次磁盘
 - **SchedulerStorageService**：按需消耗（仅 Tick 匹配时读磁盘 + 执行后写 LastRunDate）
 
 ## 配置约定

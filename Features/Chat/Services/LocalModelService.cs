@@ -242,7 +242,8 @@ public sealed class LocalModelService : IDisposable
 
     private void CleanupTemp()
     {
-        try { File.Delete(_modelPath + ".download"); } catch { /* ignored */ }
+        try { File.Delete(_modelPath + ".download"); }
+        catch (Exception ex) { Log.Debug(ex, "[LocalModel] 清理临时下载文件失败"); }
     }
 
     public void Dispose()

@@ -12,5 +12,8 @@ public class PluginSharedState
     public PatternMatch? PendingSuggestion { get; set; }
 
     /// <summary>清空对话回调（ChatAgentService 设置，ChatToolsPlugin.ClearChat 调用）</summary>
-    public Action? OnClearChat { get; set; }
+    public event Action? OnClearChat;
+
+    /// <summary>触发清空对话事件</summary>
+    public void RaiseClearChat() => OnClearChat?.Invoke();
 }

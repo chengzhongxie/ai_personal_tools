@@ -32,13 +32,33 @@ public partial class ChatView : UserControl
         InputTextBox.Select(InputTextBox.Text.Length, 0);
     }
 
-    /// <summary>处理输入框回车键：非工作状态时发送消息</summary>
+    /// <summary>处理输入框按键：Enter 发送，Up/Down 导航输入历史</summary>
     private void InputTextBox_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter && !ViewModel.IsWorking)
         {
             e.Handled = true;
             ViewModel.SendCommand.Execute(null);
+        }
+        else if (e.Key == Key.Up)
+        {
+            var text = ViewModel.NavigateInputHistory(-1);
+            if (text is not null)
+            {
+                ViewModel.InputText = text;
+                InputTextBox.CaretIndex = InputTextBox.Text.Length;
+            }
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Down)
+        {
+            var text = ViewModel.NavigateInputHistory(1);
+            if (text is not null)
+            {
+                ViewModel.InputText = text;
+                InputTextBox.CaretIndex = InputTextBox.Text.Length;
+            }
+            e.Handled = true;
         }
     }
 }

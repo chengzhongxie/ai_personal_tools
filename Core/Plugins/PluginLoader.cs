@@ -1,5 +1,6 @@
 using System.IO;
 using System.Reflection;
+using System.Runtime.Loader;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Serilog;
@@ -9,6 +10,7 @@ namespace PersonalAssistant.Core.Plugins;
 /// <summary>
 /// 外部插件加载器：扫描 %APPDATA%\PersonalAssistant\Plugins\*.cs，
 /// 使用 Roslyn 编译到内存，反射发现 PluginBase 子类并实例化。
+/// 使用 AssemblyLoadContext 隔离加载，避免污染默认 Assembly 上下文（支持未来热卸载）。
 /// 资源成本：启动时一次性 ~50-200ms CPU（Roslyn 编译），用完 GC。之后零开销。
 /// </summary>
 public class PluginLoader
@@ -103,7 +105,10 @@ public class PluginLoader
             Log.Debug("[PluginLoader] {File}: {Warning}", fileName, w);
 
         ms.Seek(0, SeekOrigin.Begin);
-        var assembly = Assembly.Load(ms.ToArray());
+        var alc = new AssemblyLoadContext(
+            $"Plugin_{Path.GetFileNameWithoutExtension(fileName)}",
+            isCollectible: true);
+        var assembly = alc.LoadFromStream(ms);
 
         return assembly.GetTypes()
             .Where(t => t.IsClass && !t.IsAbstract && typeof(PluginBase).IsAssignableFrom(t))

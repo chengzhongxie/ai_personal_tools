@@ -5,6 +5,7 @@ using System.Text;
 using System.Windows;
 using System.Windows.Media.Imaging;
 using PersonalAssistant.Features.Plugins.SystemTools;
+using Serilog;
 using WinBitmapDecoder = Windows.Graphics.Imaging.BitmapDecoder;
 using Windows.Media.Ocr;
 using Windows.Storage;
@@ -137,8 +138,9 @@ internal static class SystemInfoMethods
             var result = await engine.RecognizeAsync(softwareBitmap);
             return result.Text;
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug(ex, "[Screenshot] 本地 OCR 失败");
             return "";
         }
     }

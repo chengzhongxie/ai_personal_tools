@@ -20,9 +20,13 @@ namespace PersonalAssistant.Core.Services;
 public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
 {
     private readonly List<IToolPlugin> _allPlugins;
-    private readonly List<IToolPlugin> _activePlugins;
+    private List<IToolPlugin> _activePlugins;
     private readonly PluginStateService _pluginState;
     private readonly WorkflowRecorder _recorder;
+
+    // 缓存：避免每次 GetAllTools() 都遍历所有插件重建 AIFunction 数组
+    private AIFunction[]? _cachedTools;
+    private bool _toolsCacheValid;
 
     /// <summary>高危工具集合</summary>
     private static readonly HashSet<string> DangerousTools = new(StringComparer.OrdinalIgnoreCase)
@@ -37,9 +41,6 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
         "list_schedules", "delete_schedule", "clear_chat",
         "read_clipboard", "write_clipboard", "notify", "local_llm"
     };
-
-    /// <summary>待确认的模式建议</summary>
-    public PatternMatch? PendingSuggestion { get; set; }
 
     // IDangerousToolPolicy
     public Func<string, string, bool>? DangerConfirmation { get; set; }
@@ -97,19 +98,25 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
     }
 
     /// <summary>所有插件（含禁用的），供管理窗口枚举</summary>
-    public IReadOnlyList<IToolPlugin> AllPlugins => _allPlugins;
+    public IReadOnlyList<IToolPlugin> AllPlugins => _allPlugins.AsReadOnly();
 
     // IToolPluginHost
 
-    /// <summary>遍历启用的插件收集 AIFunction</summary>
+    /// <summary>遍历启用的插件收集 AIFunction（带缓存，插件列表变更后自动重建）</summary>
     public AIFunction[] GetAllTools()
     {
-        return _activePlugins.SelectMany(p => p.GetTools()).ToArray();
+        if (_cachedTools is not null && _toolsCacheValid)
+            return _cachedTools;
+
+        _cachedTools = _activePlugins.SelectMany(p => p.GetTools()).ToArray();
+        _toolsCacheValid = true;
+        return _cachedTools;
     }
 
     /// <summary>
     /// 遍历启用的插件调用 TryExecuteToolAsync，返回首个非 null 结果。
     /// 自动录制系统工具到 WorkflowRecorder。
+    /// 每个插件独立 try-catch，一个插件出错不影响其他插件。
     /// </summary>
     public async Task<string> ExecuteToolStepAsync(string toolName, string args)
     {
@@ -119,9 +126,17 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
 
         foreach (var plugin in _activePlugins)
         {
-            var result = await plugin.TryExecuteToolAsync(toolName, args);
-            if (result is not null)
-                return result;
+            try
+            {
+                var result = await plugin.TryExecuteToolAsync(toolName, args);
+                if (result is not null)
+                    return result;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "[PluginAggregator] 插件 {Plugin} 执行 {Tool} 异常",
+                    plugin.Name, toolName);
+            }
         }
 
         return $"未知工具: {toolName}";
@@ -136,5 +151,17 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
             .Select(f => f!);
 
         return string.Join("\n", fragments);
+    }
+
+    /// <summary>
+    /// 刷新活跃插件列表（根据 PluginStateService 当前状态过滤）。
+    /// 供 PluginManagementWindow 在用户切换启用/禁用后调用，免重启生效。
+    /// </summary>
+    public void RefreshActivePlugins()
+    {
+        _activePlugins = _allPlugins
+            .Where(p => _pluginState.IsEnabled(p.Name))
+            .ToList();
+        _toolsCacheValid = false;
     }
 }

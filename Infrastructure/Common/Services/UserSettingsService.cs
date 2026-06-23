@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
 using PersonalAssistant.Features.Chat.Models;
+using Serilog;
 
 namespace PersonalAssistant.Infrastructure.Common.Services;
 
@@ -90,9 +91,9 @@ public class UserSettingsService
                 IsAutoStartEnabled = data.IsAutoStartEnabled;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // 文件损坏则使用默认值
+            Log.Warning(ex, "[UserSettings] 配置文件损坏，将使用默认值");
         }
     }
 

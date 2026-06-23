@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Markdig.Wpf" Version="0.5.0.1" />
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
@@ -37,12 +38,8 @@
 
   <!-- 本地模型 + 下载配置：打包时自动包含 -->
   <ItemGroup>
-    <Content Include="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf"
-             CopyToOutputDirectory="PreserveNewest"
-             Link="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" />
-    <Content Include="Assets\model_sources.json"
-             CopyToOutputDirectory="PreserveNewest"
-             Link="Assets\model_sources.json" />
+    <Content Include="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" CopyToOutputDirectory="PreserveNewest" Link="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" />
+    <Content Include="Assets\model_sources.json" CopyToOutputDirectory="PreserveNewest" Link="Assets\model_sources.json" />
   </ItemGroup>
 
 </Project>

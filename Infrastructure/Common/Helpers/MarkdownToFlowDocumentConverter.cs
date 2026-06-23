@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Documents;
 using Markdig;
+using Serilog;
 
 namespace PersonalAssistant.Infrastructure.Common.Helpers;
 
@@ -24,8 +25,9 @@ public class MarkdownToFlowDocumentConverter : System.Windows.Data.IValueConvert
         {
             return Markdig.Wpf.Markdown.ToFlowDocument(markdown, Pipeline);
         }
-        catch
+        catch (Exception ex)
         {
+            Log.Debug(ex, "[MarkdownConverter] Markdown 解析失败，回退为纯文本");
             // Fallback: plain text paragraph
             var doc = new FlowDocument();
             var para = new Paragraph(new Run(markdown));

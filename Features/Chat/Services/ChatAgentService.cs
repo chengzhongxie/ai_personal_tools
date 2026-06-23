@@ -40,13 +40,10 @@ public class ChatAgentService
         _sharedState = sharedState;
 
         // 设置清空对话回调（供 ChatToolsPlugin.ClearChat 调用）
-        _sharedState.OnClearChat = () =>
+        _sharedState.OnClearChat += () =>
         {
-            if (_agent is not null)
-                _session = _agent.CreateSessionAsync().GetAwaiter().GetResult();
-            _patternDetector.Reset();
-            _recorder.CollectRound();
-            _sharedState.PendingSuggestion = null;
+            // 使用 fire-and-forget 避免在事件调用链中阻塞
+            _ = ClearHistoryAsync();
         };
     }
 
@@ -106,11 +103,22 @@ public class ChatAgentService
     /// </summary>
     public async Task ClearHistoryAsync()
     {
+        var oldSession = _session;
         if (_agent is not null)
             _session = await _agent.CreateSessionAsync();
         _patternDetector.Reset();
         _recorder.CollectRound();
         _sharedState.PendingSuggestion = null;
+
+        // 延迟释放旧 Session（避免阻塞当前操作）
+        if (oldSession is IDisposable d)
+        {
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(1000); // 等待旧 session 不再被 MAF 引用
+                d.Dispose();
+            });
+        }
     }
 
     /// <summary>
@@ -132,4 +140,5 @@ public class ChatAgentService
                $"(已出现 {pattern.OccurrenceCount} 次)。\n" +
                $"要保存为工作流吗？回复 \"保存为 {pattern.SuggestedName}\" 或告诉我你想要的名称。";
     }
+
 }

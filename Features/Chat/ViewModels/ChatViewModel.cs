@@ -23,6 +23,14 @@ public partial class ChatViewModel : ObservableObject
     private readonly IChatHistoryService _historyService;
     private readonly ModelRoutingService _routing;
 
+    // 输入历史（环形缓冲区）
+    private const int MaxInputHistory = 50;
+    private readonly List<string> _inputHistory = new(MaxInputHistory);
+    private int _historyIndex = -1;
+
+    // 取消令牌源（用于中止流式响应）
+    private CancellationTokenSource? _currentCts;
+
     /// <summary>聊天消息列表</summary>
     [ObservableProperty]
     private ObservableCollection<ChatMessage> _messages = new();
@@ -93,6 +101,21 @@ public partial class ChatViewModel : ObservableObject
         var text = InputText?.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
+        // 记录输入历史
+        if (_inputHistory.Count == 0 || _inputHistory[^1] != text)
+        {
+            if (_inputHistory.Count >= MaxInputHistory)
+                _inputHistory.RemoveAt(0);
+            _inputHistory.Add(text);
+        }
+        _historyIndex = _inputHistory.Count;
+
+        // 创建取消令牌
+        _currentCts?.Cancel();
+        _currentCts?.Dispose();
+        _currentCts = new CancellationTokenSource();
+        var ct = _currentCts.Token;
+
         InputText = string.Empty;
 
         // /clear — 本地处理，零 token
@@ -149,7 +172,7 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             var fullContent = "";
-            await foreach (var token in _chatAgent.SendMessageStreaming(text))
+            await foreach (var token in _chatAgent.SendMessageStreaming(text, ct))
             {
                 fullContent += token;
                 assistantMsg.Content = fullContent;
@@ -160,6 +183,11 @@ public partial class ChatViewModel : ObservableObject
             {
                 assistantMsg.Content = "[工具调用完成]";
             }
+        }
+        catch (OperationCanceledException)
+        {
+            assistantMsg.Content = string.IsNullOrWhiteSpace(assistantMsg.Content)
+                ? "[已取消]" : assistantMsg.Content;
         }
         catch (Exception ex)
         {
@@ -173,6 +201,8 @@ public partial class ChatViewModel : ObservableObject
         }
         finally
         {
+            var cts = Interlocked.Exchange(ref _currentCts, null);
+            cts?.Dispose();
             IsWorking = false;
             TrimDisplay();
 
@@ -203,6 +233,47 @@ public partial class ChatViewModel : ObservableObject
         Messages.Clear();
         ShowInfoBar = false;
         _historyService.Save(Messages);
+    }
+
+    /// <summary>
+    /// 取消当前正在进行的 AI 流式响应
+    /// </summary>
+    [RelayCommand]
+    private void Cancel()
+    {
+        // 捕获当前引用避免与 SendAsync finally 竞争
+        var cts = Interlocked.Exchange(ref _currentCts, null);
+        cts?.Cancel();
+        cts?.Dispose();
+    }
+
+    /// <summary>
+    /// 向上/向下箭头导航输入历史。
+    /// 返回应填入输入框的历史文本，null 表示无历史。
+    /// </summary>
+    /// <param name="direction">-1=上一条, 1=下一条</param>
+    public string? NavigateInputHistory(int direction)
+    {
+        if (_inputHistory.Count == 0)
+            return null;
+
+        _historyIndex += direction;
+
+        // 到顶 → 回到第一条
+        if (_historyIndex < 0)
+        {
+            _historyIndex = -1;
+            return "";  // 返回空字符串表示清空输入框
+        }
+
+        // 超出最新 → 清空
+        if (_historyIndex >= _inputHistory.Count)
+        {
+            _historyIndex = _inputHistory.Count;
+            return "";
+        }
+
+        return _inputHistory[_historyIndex];
     }
 
     private void TrimDisplay()
