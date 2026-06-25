@@ -12,6 +12,7 @@ namespace PersonalAssistant.Features.Plugins.WebTools;
 public class WebToolsPlugin : IToolPlugin
 {
     public string Name => "WebTools";
+    public string Description => "提供 2 个 Web 工具：网页内容抓取 和 DuckDuckGo 搜索引擎查询";
 
     public AIFunction[] GetTools()
     {

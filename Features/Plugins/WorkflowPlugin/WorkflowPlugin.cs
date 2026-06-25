@@ -23,6 +23,7 @@ public class WorkflowPlugin : IToolPlugin
     private IDangerousToolPolicy Policy => _policy ??= _services.GetRequiredService<IDangerousToolPolicy>();
 
     public string Name => "Workflow";
+    public string Description => "提供 4 个工作流工具：查看/回放/删除/保存 已学习的重复工具调用模式，免 AI 本地回放";
 
     public WorkflowPlugin(WorkflowStorageService storage,
         IServiceProvider services,

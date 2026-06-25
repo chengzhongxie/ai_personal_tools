@@ -18,6 +18,7 @@ public class ExternalPluginAdapter : IToolPlugin
     private readonly object _lock = new();
 
     public string Name => _plugin.Name;
+    public string Description => _plugin.Description;
 
     /// <summary>暴露内部 PluginBase 实例，供插件管理窗口等外部使用</summary>
     public PluginBase SourcePlugin => _plugin;

@@ -14,6 +14,30 @@
         <helpers:InverseBoolToVisibilityConverter x:Key="InvBoolToVis" />
         <helpers:MarkdownToFlowDocumentConverter x:Key="MarkdownToDoc" />
 
+        <!-- 输入框专用样式：绕过 WPF-UI 模板内部元素的深色背景，使用简易模板 -->
+        <Style x:Key="CleanInputStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundPrimary}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource Brush.AccentStart}" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="0">
+                            <ScrollViewer x:Name="PART_ContentHost"
+                                          Background="Transparent" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
     </UserControl.Resources>
 
     <Grid>
@@ -199,13 +223,9 @@
                         BorderBrush="{DynamicResource Brush.BorderSecondary}" BorderThickness="1"
                         Padding="12,0">
                     <TextBox x:Name="InputTextBox"
+                             Style="{StaticResource CleanInputStyle}"
                              Text="{Binding ViewModel.InputText, UpdateSourceTrigger=PropertyChanged}"
-                             VerticalAlignment="Center"
                              MinHeight="36"
-                             Background="Transparent"
-                             Foreground="{DynamicResource Brush.ForegroundPrimary}"
-                             CaretBrush="{DynamicResource Brush.AccentStart}"
-                             BorderThickness="0"
                              FontSize="13"
                              PreviewKeyDown="InputTextBox_PreviewKeyDown" />
                 </Border>

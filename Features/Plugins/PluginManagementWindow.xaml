@@ -62,6 +62,14 @@
                                         </TextBlock>
                                     </StackPanel>
 
+                                    <!-- Description -->
+                                    <TextBlock Text="{Binding Description}"
+                                               FontSize="11"
+                                               Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                               Margin="0,2,0,2"
+                                               TextWrapping="Wrap"
+                                               MaxWidth="380" />
+
                                     <!-- Tool Tags -->
                                     <ItemsControl ItemsSource="{Binding ToolNames}"
                                                   Margin="0,2,0,0">

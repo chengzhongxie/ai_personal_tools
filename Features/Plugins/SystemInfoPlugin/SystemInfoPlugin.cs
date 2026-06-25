@@ -12,6 +12,7 @@ namespace PersonalAssistant.Features.Plugins.SystemInfoPlugin;
 public class SystemInfoPlugin : IToolPlugin
 {
     public string Name => "SystemInfo";
+    public string Description => "提供 2 个系统信息工具：系统状态查询（内存/磁盘/进程/电池）和 截图 + Windows 本地 OCR";
 
     public AIFunction[] GetTools()
     {

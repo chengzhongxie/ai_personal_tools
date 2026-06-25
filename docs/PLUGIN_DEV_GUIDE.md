@@ -165,7 +165,7 @@ public class CalculatorPlugin : PluginBase
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | `Name` | `abstract string` | 插件名称，用于日志和调试。建议使用 PascalCase |
-| `Description` | `abstract string` | 插件描述，启动时记录到日志 |
+| `Description` | `abstract string` | 插件用途和功能说明，显示在插件管理界面中供用户了解插件功能 |
 | `GetToolDefinitions()` | `abstract PluginToolDefinition[]` | 返回此插件提供的所有工具元数据 |
 | `ExecuteToolAsync(string toolName, string args)` | `abstract Task<string?>` | 执行指定工具并返回结果 |
 
@@ -352,7 +352,7 @@ public override string? GetPromptFragment()
 
 | 功能 | 操作 | 说明 |
 |------|------|------|
-| 查看插件列表 | 自动展示 | 显示所有内置 + 外部插件，含工具列表 |
+| 查看插件列表 | 自动展示 | 显示所有内置 + 外部插件，含用途说明和工具列表 |
 | 启用/禁用 | 勾选 CheckBox | 禁用后 AI 不可调用该插件的工具 |
 | 删除外部插件 | 点击"删除"按钮 | 确认后删除源文件 |
 | 导入插件 | 点击"导入插件" | 选择 .cs 文件复制到 Plugins 目录 |
@@ -568,6 +568,18 @@ public override Task<string?> ExecuteToolAsync(...)
     var result = DoSyncWork();
     return Task.FromResult(result);
 }
+```
+
+### 插件描述
+
+`PluginBase.Description` 会在**插件管理界面**中展示给用户，应简洁清晰地说明插件的用途：
+
+```csharp
+// ✅ 简洁清晰，用户一看就懂
+public override string Description => "提供 3 个定时任务工具：创建/查看/删除每日定时任务，到时间自动执行指定 AI 工具";
+
+// ❌ 太技术化，用户看不懂
+public override string Description => "基于 System.Threading.Timer 实现的定时任务调度器";
 ```
 
 ### 工具描述

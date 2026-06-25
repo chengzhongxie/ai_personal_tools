@@ -11,6 +11,9 @@ public interface IToolPlugin
     /// <summary>插件名称，用于日志和调试</summary>
     string Name { get; }
 
+    /// <summary>插件用途和功能说明，供插件管理界面展示</summary>
+    string Description { get; }
+
     /// <summary>返回此插件提供的所有 AIFunction</summary>
     AIFunction[] GetTools();
 

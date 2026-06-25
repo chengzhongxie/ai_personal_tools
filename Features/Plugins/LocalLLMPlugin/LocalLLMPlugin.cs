@@ -15,6 +15,7 @@ public class LocalLLMPlugin : IToolPlugin
     private readonly LocalModelService _localModel;
 
     public string Name => "LocalLLM";
+    public string Description => "提供 1 个本地 LLM 工具：使用 Qwen2.5-0.5B 本地模型零 token 推理，适合文本摘要、关键词提取等轻量任务";
 
     public LocalLLMPlugin(LocalModelService localModel)
     {

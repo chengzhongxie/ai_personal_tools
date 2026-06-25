@@ -17,6 +17,7 @@ public class ChatToolsPlugin : IToolPlugin
     private readonly PluginSharedState _sharedState;
 
     public string Name => "ChatTools";
+    public string Description => "提供 2 个聊天工具：清空对话历史 和 系统托盘气泡通知";
 
     public ChatToolsPlugin(TrayService trayService, PluginSharedState sharedState)
     {

@@ -14,6 +14,8 @@ public class KnowledgeBasePlugin : IToolPlugin
     private readonly KnowledgeBaseService _kbService;
 
     public string Name => "KnowledgeBase";
+    public string Description => "提供 1 个知识库搜索工具：在用户本地文档中 TF-IDF 检索相关内容，支持中文分词";
+
     public string? GetPromptFragment() =>
         "You have a knowledge_search tool to search through the user's local documents.\n" +
         "Use this when the user asks about their own notes, documents, or local files.\n" +

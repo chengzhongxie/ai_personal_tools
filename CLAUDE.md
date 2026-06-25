@@ -52,12 +52,13 @@
 |------|---------|
 | AI 框架 | Microsoft Agent Framework (MAF) via `Microsoft.Agents.AI.OpenAI` 1.10.0 |
 | AI 底层 | DeepSeek API (via OpenAI .NET SDK 2.11.0) |
-| 聊天界面 | WPF + 深色科技风 Chat Bubble UI |
+| 聊天界面 | WPF + 深色/浅色可切换主题 Chat Bubble UI |
 | MVVM | CommunityToolkit.Mvvm 8.4.0 |
 | DI | Scrutor 6.1.0 自动扫描 |
 | UI 框架 | WPF-UI 4.0.3 (FluentWindow, InfoBar, ProgressRing) |
 | 日志 | Serilog 4.3.0 |
 | 本地 LLM | LLamaSharp 0.27.0 + Qwen2.5-0.5B-Instruct GGUF (离线，零 token) |
+| 主题 | DynamicResource 主题系统（深色/浅色可切换） |
 | 用户配置 | `%APPDATA%\PersonalAssistant\settings.json` (不入库，每台电脑独立) |
 
 ## 架构：插件化工具系统
@@ -77,13 +78,14 @@ ChatAgentService (MAF 生命周期 + 流式输出, ~130行)
 PluginAggregator 自动发现所有 IToolPlugin（DI IEnumerable<IToolPlugin> + PluginLoader）:
     │  外部插件优先
     ├── [External] PluginLoader → PluginBase → ExternalPluginAdapter → IToolPlugin
-    ├── SystemToolsPlugin   (13 tools: read_file, write_file, ...)
-    ├── WebToolsPlugin      (2 tools:  web_fetch, web_search)
-    ├── SystemInfoPlugin    (2 tools:  system_info, screenshot)
-    ├── ChatToolsPlugin     (2 tools:  clear_chat, notify)
-    ├── SchedulerPlugin     (3 tools:  add/list/delete_schedule)
-    ├── WorkflowPlugin      (4 tools:  list/run/delete/save_workflow)
-    └── LocalLLMPlugin      (1 tool:   local_llm)
+    ├── SystemToolsPlugin       (13 tools: read_file, write_file, ...)
+    ├── WebToolsPlugin          (2 tools:  web_fetch, web_search)
+    ├── SystemInfoPlugin        (2 tools:  system_info, screenshot)
+    ├── ChatToolsPlugin         (2 tools:  clear_chat, notify)
+    ├── SchedulerPlugin         (3 tools:  add/list/delete_schedule)
+    ├── WorkflowPlugin          (4 tools:  list/run/delete/save_workflow)
+    ├── LocalLLMPlugin          (1 tool:   local_llm)
+    └── KnowledgeBasePlugin     (1 tool:   knowledge_search)
 ```
 
 ### 三个核心接口（`Core/Interfaces/`）
@@ -163,17 +165,20 @@ public sealed class PluginToolDefinition
 ## 功能模块
 
 ### Chat
-- **ChatAgentService**：~140 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(ct)` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose）。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
-- **ChatSystemPrompt**：系统提示词构建器（从 ChatAgentService.Prompt.cs 提取）。基础提示词 + 聚合所有插件的提示词片段。线程安全锁保护缓存（双重检查锁定），插件片段不变则复用（零分配）。
-- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话历史持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService。
+- **ChatAgentService**：~160 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(ct)` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose）。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。离线探测（`ProbeNetworkAsync()`，3s 超时 HEAD 请求）+ `IsOffline` 属性。对话摘要轮次计数（`IncrementSummarizerRound()` / `ShouldSummarize`）+ 摘要提示词片段注入。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
+- **ChatSystemPrompt**：系统提示词构建器（从 ChatAgentService.Prompt.cs 提取）。基础提示词 + 聚合所有插件的提示词片段 + 对话摘要片段。线程安全锁保护缓存（双重检查锁定），插件片段不变则复用（零分配）。
+- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话历史持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。离线模式：网络不可用时强制走本地模型。Token 用量显示（底部状态栏 `TokenDisplay`，格式 "本轮: 150 tokens | 本月: 12.3K tokens"）。对话摘要集成：超过 30 轮自动触发本地摘要生成，修剪旧消息并注入摘要。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService + TokenUsageService + ConversationSummarizer。
 - **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。
-- **ChatView**：WPF 深色科技风聊天界面（Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。Markdig.Wpf 解析 Markdown → FlowDocument，AI 回复支持代码块语法高亮、列表、表格、加粗等。支持 Up/Down 箭头导航输入历史
+- **ChatView**：WPF 聊天界面（深色/浅色主题切换，Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。Markdig.Wpf 解析 Markdown → FlowDocument，AI 回复支持代码块语法高亮、列表、表格、加粗等。支持 Up/Down 箭头导航输入历史。所有颜色使用 DynamicResource 主题系统。
 - **ChatHistoryService**：对话历史持久化到 `%APPDATA%\PersonalAssistant\chat_history.json`（仅 UI 恢复，不回放 AI 会话），跳过 System 角色消息，最多 200 条。加载失败时记录 warning 日志并降级为空列表
 - **LocalModelService**：封装 LLamaSharp 加载 Qwen2.5-0.5B-Instruct GGUF 本地模型。`InferAsync(prompt, maxTokens?, systemPrompt?, ct)` 提供单轮无状态推理。延迟初始化（首次调用才加载），`SemaphoreSlim(1,1)` 保证线程安全，`IDisposable` 释放 `LLamaWeights`/`LLamaContext`。模型获取优先级：%APPDATA% → 打包目录自动部署 → 多镜像自动下载（model_sources.json 配置，带进度报告）。资源成本：首次加载 ~550MB 内存（模型 + KV Cache），空闲时仅内存驻留，无 CPU 消耗。
 - **ModelRoutingService**：3 层漏斗精准模型路由。L1 快速预判（极短/明显需工具）→ L2 本地 Qwen 0.5B 语义意图分类（conversation/question → 本地 / action/creation/system → 远程）→ L3 语义质量评估（不合格自动回退远程）。本地分类阶段 MaxTokens=10，约 1-2s。资源成本：按需消耗，空闲时零开销。
+- **TokenUsageService**：Token 用量统计（~4 chars/token 估算）。记录每轮输入/输出的 token 消耗，按月分桶，异步持久化到 `%APPDATA%\PersonalAssistant\token_usage.json`。自动修剪 12 个月前的旧数据。资源成本：仅记录和写盘时消耗，空闲时零开销。
+- **ConversationSummarizer**：对话摘要器。对话超过 30 轮时，提取最旧 10 轮调用本地模型生成摘要，注入系统提示词作为上下文。`SummarizeAsync(messages)` 返回摘要文本，`LatestSummary` 暴露最新摘要供系统提示词注入。资源成本：仅触发时消耗（~2-3s 本地推理），空闲时零开销。
+- **ChatExportService**：对话导出服务。将对话历史导出为 Markdown 文件（SaveFileDialog 选择路径）。资源成本：仅导出时消耗，空闲时零开销。
 - **工具调用确认**：高危工具（run_shell, write_file, delete_workflow, delete_schedule）执行前弹窗确认。`IDangerousToolPolicy.DangerConfirmation` 委托在 ChatViewModel 中设置，通过 `Dispatcher.Invoke` 封送到 UI 线程显示 MessageBox。确认机制为本地代码逻辑，零 token 消耗。
 
-### Plugins（插件化工具模块，7 个自包含插件）
+### Plugins（插件化工具模块，8 个自包含插件）
 
 > 每个插件实现 `IToolPlugin` 接口，通过 PluginAggregator 自动聚合。
 > 录制由 PluginAggregator 透明处理（系统工具录制，管理工具和 local_llm 不录制）。
@@ -187,7 +192,9 @@ public sealed class PluginToolDefinition
 | **SchedulerPlugin** | `Plugins/SchedulerPlugin/` | 3 | add_schedule, list_schedules, delete_schedule |
 | **WorkflowPlugin** | `Plugins/WorkflowPlugin/` | 4 | list_workflows, run_workflow, delete_workflow, save_workflow |
 | **LocalLLMPlugin** | `Plugins/LocalLLMPlugin/` | 1 | local_llm (Qwen2.5-0.5B 本地推理) |
+| **KnowledgeBasePlugin** | `Plugins/KnowledgeBasePlugin/` | 1 | knowledge_search (搜索本地已索引文档，TF-IDF + 余弦相似度) |
 | **PluginManagementWindow** | `Plugins/` | - | 插件可视化管理：查看、启用/禁用、删除、导入。Transient 生命周期。从托盘右键菜单"插件管理"打开 |
+| **PluginMarketplaceWindow** | `Plugins/` | - | 插件市场：搜索 GitHub Gists 上的社区插件（`[personal-assistant-plugin]` 标签），一键下载安装。Transient 生命周期 |
 
 ### Core（平台核心）
 
@@ -198,6 +205,8 @@ public sealed class PluginToolDefinition
 | **PluginBase** | `Core/Plugins/` | 外部插件基类（PluginBase + PluginToolDefinition + PluginParameter DTO），零外部依赖 |
 | **PluginLoader** | `Core/Plugins/` | Roslyn 编译 %APPDATA%\PersonalAssistant\Plugins\*.cs → 反射发现 PluginBase 子类 → 实例化 |
 | **ExternalPluginAdapter** | `Core/Plugins/` | PluginBase → IToolPlugin 桥接，运行时 AIFunctionFactory.Create 生成 AIFunction[]。暴露 SourcePlugin 属性供管理窗口枚举 |
+| **PluginFileWatcher** | `Features/Plugins/` | FileSystemWatcher 监控外部插件目录 `*.cs` 文件变更（500ms 防抖），触发 PluginFileChanged 事件供热重载。资源成本：OS 事件驱动，空闲时零开销 |
+| **PluginMarketplaceService** | `Features/Plugins/Services/` | GitHub Gists API 搜索社区插件（按 `[personal-assistant-plugin]` 标签过滤），结果缓存 1 小时。支持一键下载安装。资源成本：HTTP 按需消耗，1h 缓存 |
 | **PluginStateService** | `Infrastructure/Common/Services/` | 插件启用/禁用状态持久化（HashSet + JSON），零定时器/线程，空闲时零开销 |
 
 ### Workflow（学习能力）
@@ -206,6 +215,23 @@ public sealed class PluginToolDefinition
 - **WorkflowStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\workflows\` 目录
 - **WorkflowExecutorService**：本地回放已保存工作流，不调用 AI，通过 `IToolPluginHost.ExecuteToolStepAsync()` 执行
 
+### KnowledgeBase（知识库搜索）
+- **KnowledgeBaseService**：全文检索引擎，支持 .md/.txt/.pdf 文件。中文分词（逐字）+ 英文分词（空格），TF-IDF + 余弦相似度排序，Top-K 结果返回。索引持久化到 `%APPDATA%\PersonalAssistant\knowledge_base\index.json`。`IndexDirectoryAsync(dir, progress?)` 异步索引目录，`Search(query, topK=5)` 搜索。资源成本：仅索引和搜索时消耗 CPU，空闲时零开销。
+- **DocumentChunk**：文档分块模型（512 字符重叠分块），`KnowledgeBaseIndex` 包含完整索引元数据。
+- **KnowledgeBasePlugin**：1 个 AI 工具 `knowledge_search(query)`，AI 可通过它搜索用户本地文档。提示词片段指导 AI 优先使用此工具回答文档相关问题。
+
+### Widgets（桌面小组件）
+- **WidgetPanel**：无边框透明置顶窗口，位于悬浮窗左侧。根据 WidgetConfig 按需加载卡片（Weather/Todo/SystemStatus），`PositionNear(target)` 跟随悬浮窗定位。资源成本：仅在显示时消耗，隐藏时零开销。
+- **WidgetCard**：可复用卡片容器（UserControl），含标题 + ContentPresenter。
+- **WeatherWidget**：天气显示，wttr.in 免费 API 查询（格式 `%t+%C`），30 分钟缓存，失败降级为 `"--"`。资源成本：首次加载 1 次 HTTP，之后 30min 缓存。
+- **TodoWidget**：简易待办列表，输入框 + Enter/按钮添加，持久化到 `%APPDATA%\PersonalAssistant\todos.json`。
+- **SystemStatusWidget**：系统资源监控，PerformanceCounter 读取 CPU 使用率 + GC.GetTotalMemory 读取托管内存，5s 刷新。资源成本：5s 定时器仅在显示时运行，隐藏时停止并 Dispose。
+- **WidgetConfigService**：小组件开关配置持久化到 `%APPDATA%\PersonalAssistant\widget_config.json`。
+
+### Notifications（通知历史）
+- **NotificationHistoryWindow**：通知历史窗口，显示最近 50 条托盘通知（标题、来源、时间戳、内容）。Transient 生命周期，从托盘右键菜单"通知历史"打开。
+- **NotificationRecord**：通知记录 POCO（Title, Message, Timestamp, Source）。
+
 ### Scheduler（定时任务）
 - **SchedulerService**：System.Threading.Timer 30s 间隔检查，SemaphoreSlim 防重入，匹配 HH:mm → 检查 LastRunDate → IToolPluginHost.ExecuteToolStepAsync → 更新 LastRunDate。任务列表内存缓存（5 分钟刷新），避免每次 Tick 读取磁盘。IDisposable 清理 Timer + Semaphore。依赖 IToolPluginHost（不再依赖 ChatAgentService）
 - **SchedulerStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\schedules\` 目录
@@ -213,7 +239,7 @@ public sealed class PluginToolDefinition
 
 ### AI 工具方法
 
-> 斜杠命令已统一为 AI 工具层（7 个插件）。用户用自然语言操作，AI 自动调用对应工具。
+> 斜杠命令已统一为 AI 工具层（8 个插件）。用户用自然语言操作，AI 自动调用对应工具。
 > 仅 `/clear` 保留本地拦截（ChatViewModel），零 token 消耗。
 
 | AI 工具 | 所属插件 | 说明 |
@@ -245,32 +271,36 @@ public sealed class PluginToolDefinition
 | `delete_workflow(name)` | Workflow | 删除工作流（高危确认） |
 | `save_workflow(name)` | Workflow | 保存最近检测到的重复模式为工作流 |
 | `local_llm(prompt)` | LocalLLM | 本地小模型推理，零远程 token |
+| `knowledge_search(query)` | KnowledgeBase | 搜索本地已索引文档，TF-IDF + 余弦相似度 |
 
 | 本地命令 | 触发 | 作用 |
 |---------|------|------|
 | `/clear` | ChatViewModel | 清空消息+历史+重置模式检测器（零 token） |
 
 ### MainWindow
-- **全局快捷键**：
-  - `Alt+Space`：切换主窗口显示/隐藏（Win32 RegisterHotKey + WndProc hook），无后台轮询开销
-  - `Ctrl+Alt+Space`：在任何应用中选中文本后按下 → 模拟 Ctrl+C 复制 → 恢复原始剪贴板 → 显示主窗口并填入选中文本，用户可添加指令后发送给 AI
+- **全局快捷键（可配置）**：
+  - `Alt+Space`（默认）：切换主窗口显示/隐藏（Win32 RegisterHotKey + WndProc hook），无后台轮询开销
+  - `Ctrl+Alt+Space`（默认）：在任何应用中选中文本后按下 → 模拟 Ctrl+C 复制 → 恢复原始剪贴板 → 显示主窗口并填入选中文本，用户可添加指令后发送给 AI
+  - 快捷键可在设置窗口中自定义（Modifiers + Key），通过 `UserSettingsService` 持久化
 - 热键注册失败时通过托盘气泡通知用户（如被 PowerToys 占用）
 - 关闭/最小化主窗口 → 显示悬浮窗（右下角，始终置顶，正弦浮动动画）
 
 ### Mascot
 - **MascotWindow**：卡通机器人悬浮窗，纯 XAML 绘制（椭圆/矩形/Path 拼合）
 - **鼠标交互：** 眼球追踪鼠标（25fps 节流）、悬停放大 1.12x + 天线变青、点击压缩弹跳、可拖动
-- 点击悬浮窗（未拖动）→ 隐藏人偶 → 恢复主窗口并聚焦输入框
+- 左键点击悬浮窗（未拖动）→ 隐藏人偶 → 恢复主窗口并聚焦输入框
+- 右键点击悬浮窗 → 切换 WidgetPanel 桌面小组件面板（显示/隐藏）
 - 人偶隐藏时浮动动画自动暂停，显示时恢复（省 CPU）
 
 ### Settings
-- **SettingsWindow**：AI 模型配置 + 开机自启动，深色主题
+- **SettingsWindow**：AI 模型配置 + 开机自启动 + 主题切换 + 快捷键自定义 + 知识库管理，深色/浅色主题适配
 - 配置保存在 `%APPDATA%\PersonalAssistant\settings.json`
 - 从托盘右键菜单"设置"打开
+- **配置项**：API Key（显示/隐藏切换）、提供商预设（DeepSeek/Zhipu GLM/自定义）、模型名称、API 端点、连接测试、开机自启动、深色/浅色主题、快捷键组合（HotkeyCaptureBox 控件）、知识库目录选择 + 一键索引（带进度）
 
 ### Tray
-- **TrayService**：系统托盘图标（代码绘制蓝紫渐变 "AI" 图标）+ 右键菜单（显示主窗口、设置、插件管理、退出）
-- **UserSettingsService**：管理用户级配置（API Key/Model/Endpoint/AutoStart），含注册表操作。配置文件损坏时记录警告并降级为默认值
+- **TrayService**：系统托盘图标（代码绘制蓝紫渐变 "AI" 图标）+ 右键菜单（显示主窗口、设置、插件管理、导出对话、通知历史、切换主题、退出）。通知历史保留最近 50 条（`ObservableCollection<NotificationRecord>`），气泡通知自动记录。`ShowNotification(title, message)` 统一通知入口，>256 字符自动截断
+- **UserSettingsService**：管理用户级配置（API Key/Model/Endpoint/AutoStart/HotkeyModifiers/HotkeyKey/IsDarkTheme），含注册表操作。配置文件损坏时记录警告并降级为默认值。新增快捷键配置属性（HotkeyModifiers, HotkeyKey, SelectTextModifiers, SelectTextKey）和主题属性（IsDarkTheme）
 
 ## 性能约束 + 低功耗设计（强制）
 
@@ -301,8 +331,11 @@ public sealed class PluginToolDefinition
 | **新功能必评估资源成本** | 每新增一个功能模块，必须在代码注释或 commit 中说明其对 CPU/内存的持续影响（近似零 / 按需消耗 / 持续消耗 xMB） |
 
 ### 插件系统资源评估
-- **IToolPlugin 实例（7个）**：~14个单例对象，无定时器/线程，空闲时零开销
+- **IToolPlugin 实例（8个）**：~16个单例对象，无定时器/线程，空闲时零开销
 - **PluginAggregator**：1个单例，持有 2 个 List（_allPlugins + _activePlugins），GetAllTools 带缓存（零分配直到失效），ExecuteToolStepAsync 线性扫描 O(n)，每插件独立 try-catch
+- **PluginLoader**：启动时一次性 ~50-200ms CPU（Roslyn 编译），之后零开销
+- **PluginFileWatcher**：1个 FileSystemWatcher，OS 事件驱动，空闲时零开销
+- **PluginMarketplaceService**：HTTP 按需消耗，1h 缓存，空闲时零开销
 - **录制包装**：WorkflowRecorder 引用，每次工具调用一次 RecordStep()
 - **DI 扫描**：启动时 ~1ms 反射扫描，零运行时开销
 
@@ -319,6 +352,18 @@ public sealed class PluginToolDefinition
 - **SchedulerService**：30s 定时器 Tick 检查（O(1) 内存缓存比较），5 分钟刷新一次磁盘
 - **SchedulerStorageService**：按需消耗（仅 Tick 匹配时读磁盘 + 执行后写 LastRunDate）
 
+### 知识库资源评估
+- **KnowledgeBaseService**：启动时 `LoadIndex()` 一次性加载索引到内存，空闲时仅内存驻留。索引时 CPU 按需消耗（文件读取 + 分词），搜索时 O(n) 余弦相似度计算（n = 分块数）
+
+### 小组件资源评估
+- **WidgetPanel**：仅在显示时消耗（窗口渲染），隐藏时零开销
+- **SystemStatusWidget**：5s Timer 仅在显示时运行，隐藏时 Dispose 停止
+- **WeatherWidget**：首次 1 次 HTTP，30min 缓存，之后零开销
+- **TodoWidget**：仅读写时触发磁盘 I/O，空闲时零开销
+
+### 主题系统资源评估
+- **ThemeService**：启动时一次性切换 ResourceDictionary（~1ms），之后零开销。主题切换时重新加载 XAML 资源（按需消耗）
+
 ## 配置约定
 
 - AI 配置通过托盘 → "设置" 窗口修改，保存在用户目录 `%APPDATA%\PersonalAssistant\settings.json`
@@ -331,25 +376,32 @@ public sealed class PluginToolDefinition
 - 本地模型文件：放在 `%APPDATA%\PersonalAssistant\models\` 目录（*.gguf，不入库）
 - 模型下载配置：`Assets/model_sources.json`（入库），含多镜像 URL 和回退顺序，可独立更新无需改代码
 - 插件启用状态：保存在 `%APPDATA%\PersonalAssistant\plugin_state.json`（不入库）
+- Token 用量数据：保存在 `%APPDATA%\PersonalAssistant\token_usage.json`（不入库）
+- 知识库索引：保存在 `%APPDATA%\PersonalAssistant\knowledge_base\index.json`（不入库）
+- 小组件配置：保存在 `%APPDATA%\PersonalAssistant\widget_config.json`（不入库）
+- 待办事项：保存在 `%APPDATA%\PersonalAssistant\todos.json`（不入库）
 
 ## 启动流程
 
-1. `App.xaml.cs` → `Host.CreateDefaultBuilder` + Serilog + DI 注册（Scrutor 3 种扫描 + 手动注册）
+1. `App.xaml.cs` → `Host.CreateDefaultBuilder` + Serilog + DI 注册（Scrutor 3 种扫描 + 手动注册，ExternalPluginAdapter 排除扫描）
 2. `UserSettingsService` 从 `%APPDATA%` 加载配置
-3. `MainWindow` 加载 → 注册 `Alt+Space` 全局热键 → 显示 `ChatView`
-4. `TrayService` 初始化托盘图标
-5. `SchedulerService` 初始化后台定时任务调度（30s 间隔）
-6. 用户发送消息（普通文本或 `/clear`）→ `ChatViewModel.SendAsync()` 本地拦截 `/clear` 或调用 `ChatAgentService.SendMessageStreaming()` → MAF 工具循环 → DeepSeek API（流式输出）
-7. 关闭窗口 → 隐藏主窗口 → 显示卡通人偶浮动窗
-8. 最小化窗口 → 隐藏主窗口（不在任务栏） → 显示人偶
-9. 点击人偶 / 托盘"显示主窗口" → 隐藏人偶 → 恢复主窗口
+3. `ThemeService.Initialize()` 应用主题（深色/浅色，Default 暗色），必须在 MainWindow 之前执行
+4. `MainWindow` 加载 → 注册可配置全局热键 → 显示 `ChatView`
+5. `TrayService` 初始化托盘图标 + 右键菜单
+6. `SchedulerService` 初始化后台定时任务调度（30s 间隔）
+7. `KnowledgeBaseService.LoadIndex()` 加载已有知识库索引
+8. 后台线程预热本地模型（`Task.Run` + `EnsureModelAvailableAsync()`，不阻塞 UI）
+9. 用户发送消息（普通文本或 `/clear`）→ `ChatViewModel.SendAsync()` → 离线检测 → 模型路由 → `ChatAgentService.SendMessageStreaming()` → MAF 工具循环 → DeepSeek API（流式输出）
+10. 关闭窗口 → 隐藏主窗口 → 显示卡通人偶浮动窗
+11. 最小化窗口 → 隐藏主窗口（不在任务栏） → 显示人偶
+12. 点击人偶 / 托盘"显示主窗口" → 隐藏人偶 → 恢复主窗口
 
 ## 项目结构
 
 ```
 PersonalAssistant/
-├── App.xaml / App.xaml.cs              # 应用入口 + DI（3 种扫描 + 手动注册）
-├── MainWindow.xaml / MainWindow.xaml.cs # FluentWindow + TitleBar + ChatView
+├── App.xaml / App.xaml.cs              # 应用入口 + DI（3 种扫描 + 手动注册，ExternalPluginAdapter 排除）
+├── MainWindow.xaml / MainWindow.xaml.cs # FluentWindow + TitleBar + ChatView + 可配置全局热键
 ├── Core/                               # 平台契约 + 聚合器 + 外部插件系统
 │   ├── Interfaces/
 │   │   ├── IToolPlugin.cs              # 插件契约
@@ -364,14 +416,17 @@ PersonalAssistant/
 │       └── PluginSharedState.cs         # 插件间共享状态
 ├── Features/
 │   ├── Chat/
-│   │   ├── Models/                      # ChatMessage + ChatSettings + 枚举
+│   │   ├── Models/                      # ChatMessage, ChatSettings, NotificationRecord, TokenUsageStats, 枚举
 │   │   ├── Services/
-│   │   │   ├── ChatAgentService.cs      # 瘦身版 MAF 封装 (~130行) + ChatSystemPrompt.cs
+│   │   │   ├── ChatAgentService.cs      # MAF 封装 (~160行) + ChatSystemPrompt.cs
 │   │   │   ├── LocalModelService.cs      # 本地 LLM 推理
-│   │   │   └── ModelRoutingService.cs    # 自动模型路由（本地/远程）
+│   │   │   ├── ModelRoutingService.cs    # 自动模型路由（本地/远程）
+│   │   │   ├── TokenUsageService.cs      # Token 用量统计 + 持久化
+│   │   │   ├── ConversationSummarizer.cs # 对话摘要生成（本地 LLM）
+│   │   │   └── ChatExportService.cs      # 对话导出（Markdown）
 │   │   ├── ViewModels/ChatViewModel.cs
 │   │   └── Views/ChatView.xaml/.cs
-│   ├── Plugins/                         # 自包含插件模块 (7个) + 管理窗口
+│   ├── Plugins/                         # 自包含插件模块 (8个) + 管理/市场窗口
 │   │   ├── SystemTools/                 # 13 工具: read_file, write_file, ...
 │   │   │   ├── SystemToolsPlugin.cs
 │   │   │   ├── SystemToolMethods.cs
@@ -382,8 +437,14 @@ PersonalAssistant/
 │   │   ├── SchedulerPlugin/             # 3 工具: add/list/delete_schedule
 │   │   ├── WorkflowPlugin/              # 4 工具: list/run/delete/save_workflow
 │   │   ├── LocalLLMPlugin/              # 1 工具: local_llm
+│   │   ├── KnowledgeBasePlugin/         # 1 工具: knowledge_search
+│   │   ├── Services/
+│   │   │   └── PluginMarketplaceService.cs # GitHub Gists 插件市场
+│   │   ├── PluginFileWatcher.cs         # 外部插件热重载监控
 │   │   ├── PluginManagementWindow.xaml  # 插件管理窗口 (View)
-│   │   └── PluginManagementWindow.xaml.cs
+│   │   ├── PluginManagementWindow.xaml.cs
+│   │   ├── PluginMarketplaceWindow.xaml # 插件市场窗口 (View)
+│   │   └── PluginMarketplaceWindow.xaml.cs
 │   ├── Workflow/
 │   │   ├── Models/                      # ToolCallRecord, WorkflowDefinition, PatternMatch
 │   │   └── Services/                    # WorkflowRecorder, PatternDetector,
@@ -391,15 +452,31 @@ PersonalAssistant/
 │   ├── Scheduler/
 │   │   ├── Models/                      # ScheduledTask
 │   │   └── Services/                    # SchedulerService, SchedulerStorageService
+│   ├── KnowledgeBase/
+│   │   ├── Models/                      # DocumentChunk, KnowledgeBaseIndex
+│   │   └── Services/                    # KnowledgeBaseService (TF-IDF 全文检索)
+│   ├── Widgets/
+│   │   ├── Models/                      # WidgetConfig
+│   │   ├── Services/                    # WidgetConfigService
+│   │   ├── WidgetPanel.xaml/.cs         # 小组件面板窗口
+│   │   ├── WidgetCard.xaml/.cs          # 可复用卡片容器
+│   │   ├── WeatherWidget.xaml/.cs       # 天气小组件
+│   │   ├── TodoWidget.xaml/.cs          # 待办小组件
+│   │   └── SystemStatusWidget.xaml/.cs  # 系统状态小组件
+│   ├── Notifications/
+│   │   ├── NotificationHistoryWindow.xaml/.cs  # 通知历史窗口
 │   ├── Mascot/
 │   │   ├── MascotWindow.xaml            # XAML 形状绘制的机器人（无 DropShadowEffect）
-│   │   └── MascotWindow.xaml.cs         # 眼球追踪、悬停、点击弹跳、拖拽逻辑
+│   │   └── MascotWindow.xaml.cs         # 眼球追踪、悬停、点击弹跳、拖拽、右键 WidgetPanel
 │   └── Settings/
-│       ├── SettingsWindow.xaml          # AI 配置 + 开机自启动
+│       ├── SettingsWindow.xaml          # AI 配置 + 主题 + 快捷键 + 知识库 + 开机自启动
 │       └── SettingsWindow.xaml.cs
 ├── Infrastructure/Common/
 │   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, 通用转换器
-│   └── Services/                        # TrayService, UserSettingsService, ChatHistoryService, PluginStateService
+│   ├── Controls/                        # HotkeyCaptureBox (快捷键捕获控件)
+│   ├── Services/                        # TrayService, UserSettingsService, ChatHistoryService,
+│   │                                    # PluginStateService, ThemeService
+│   └── Themes/                          # ThemeColors.xaml (语义色键), DarkTheme.xaml, LightTheme.xaml
 ├── docs/
 │   ├── PLUGIN_DEV_GUIDE.md               # 外部插件开发手册
 │   └── template/                         # 通用规范模板（git submodule）

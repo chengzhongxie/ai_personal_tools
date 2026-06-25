@@ -24,6 +24,7 @@ public partial class PluginManagementWindow : Window
     private sealed record PluginDisplayInfo
     {
         public string Name { get; init; } = "";
+        public string Description { get; init; } = "";
         public string Type { get; init; } = "内置";   // "内置" | "外部"
         public bool IsEnabled { get; set; }
         public string[] ToolNames { get; init; } = [];
@@ -65,6 +66,7 @@ public partial class PluginManagementWindow : Window
             displayList.Add(new PluginDisplayInfo
             {
                 Name = plugin.Name,
+                Description = plugin.Description,
                 Type = isExternal ? "外部" : "内置",
                 IsEnabled = _pluginState.IsEnabled(plugin.Name),
                 ToolNames = displayToolNames,

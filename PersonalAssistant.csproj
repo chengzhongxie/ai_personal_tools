@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyTitle>个人 AI 助手</AssemblyTitle>
+    <Description>个人 AI 助手 - 桌面 AI 对话 + 工具调用</Description>
+    <Product>个人 AI 助手</Product>
   </PropertyGroup>
 
   <ItemGroup>

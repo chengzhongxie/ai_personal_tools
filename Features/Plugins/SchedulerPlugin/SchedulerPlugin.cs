@@ -21,6 +21,7 @@ public class SchedulerPlugin : IToolPlugin
     private IDangerousToolPolicy Policy => _policy ??= _services.GetRequiredService<IDangerousToolPolicy>();
 
     public string Name => "Scheduler";
+    public string Description => "提供 3 个定时任务工具：创建/查看/删除每日定时任务，到时间自动执行指定 AI 工具";
 
     public SchedulerPlugin(SchedulerStorageService storage, IServiceProvider services)
     {

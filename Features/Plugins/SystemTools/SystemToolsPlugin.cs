@@ -17,6 +17,7 @@ public class SystemToolsPlugin : IToolPlugin
     private IDangerousToolPolicy Policy => _policy ??= _services.GetRequiredService<IDangerousToolPolicy>();
 
     public string Name => "SystemTools";
+    public string Description => "提供 13 个系统级 AI 工具：文件读写、命令行执行、按键模拟、窗口控制、剪贴板操作等";
 
     public SystemToolsPlugin(IServiceProvider services)
     {
