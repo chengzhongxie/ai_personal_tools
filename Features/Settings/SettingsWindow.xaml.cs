@@ -1,9 +1,13 @@
 using System.ClientModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using Microsoft.Win32;
 using OpenAI;
 using OpenAI.Chat;
+using PersonalAssistant.Features.KnowledgeBase.Services;
+using PersonalAssistant.Infrastructure.Common.Helpers;
 using PersonalAssistant.Infrastructure.Common.Services;
 
 namespace PersonalAssistant.Features.Settings;
@@ -14,6 +18,7 @@ namespace PersonalAssistant.Features.Settings;
 public partial class SettingsWindow : Window
 {
     private readonly UserSettingsService _settingsService;
+    private readonly KnowledgeBaseService _kbService;
     private bool _apiKeyRevealed;
     private bool _isLoadingPreset;
 
@@ -27,12 +32,89 @@ public partial class SettingsWindow : Window
         new("自定义", "", "")
     ];
 
-    public SettingsWindow(UserSettingsService settingsService)
+    public SettingsWindow(UserSettingsService settingsService, KnowledgeBaseService kbService)
     {
         _settingsService = settingsService;
+        _kbService = kbService;
         InitializeComponent();
         InitializePresets();
         LoadSettings();
+        LoadKbStatus();
+    }
+
+    private void LoadKbStatus()
+    {
+        if (_kbService.IsIndexed)
+        {
+            KbDirTextBox.Text = _kbService.SourceDirectory ?? "";
+            KbStatus.Text = $"已索引 {_kbService.IndexedFileCount} 个文件";
+            KbStatus.Foreground = new SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E));
+        }
+        else
+        {
+            KbStatus.Text = "未建立索引";
+        }
+    }
+
+    private void BrowseKbDir_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "选择知识库文档目录",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() == true)
+        {
+            KbDirTextBox.Text = dialog.FolderName;
+        }
+    }
+
+    private async void IndexKb_Click(object sender, RoutedEventArgs e)
+    {
+        var dir = KbDirTextBox.Text;
+        if (string.IsNullOrWhiteSpace(dir) || dir == "未选择目录")
+        {
+            KbStatus.Text = "请先选择目录";
+            KbStatus.Foreground = new SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B));
+            return;
+        }
+
+        IndexKbBtn.IsEnabled = false;
+        KbStatus.Text = "正在索引...";
+        KbStatus.Foreground = new SolidColorBrush(
+            System.Windows.Media.Color.FromRgb(0x6B, 0x72, 0x80));
+
+        try
+        {
+            await _kbService.IndexDirectoryAsync(dir,
+                progress: msg =>
+                {
+                    Dispatcher.Invoke(() => KbStatus.Text = msg);
+                });
+
+            Dispatcher.Invoke(() =>
+            {
+                KbStatus.Text = $"索引完成! {_kbService.IndexedFileCount} 个文件, {_kbService.IndexedFileCount} 个文档";
+                KbStatus.Foreground = new SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E));
+            });
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                KbStatus.Text = $"索引失败: {ex.Message}";
+                KbStatus.Foreground = new SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+            });
+        }
+        finally
+        {
+            Dispatcher.Invoke(() => IndexKbBtn.IsEnabled = true);
+        }
     }
 
     private void InitializePresets()
@@ -49,6 +131,15 @@ public partial class SettingsWindow : Window
         EndpointTextBox.Text = _settingsService.Endpoint;
         AutoStartCheckBox.IsChecked = _settingsService.IsAutoStartEnabled;
 
+        // 加载快捷键配置
+        MainHotkeyBox.CapturedModifiers = ModifiersFromWin32(_settingsService.HotkeyModifiers);
+        MainHotkeyBox.CapturedKey = KeyFromVk(_settingsService.HotkeyKey);
+        MainHotkeyBox.HotkeyText = ""; // 强制刷新显示
+
+        SelectTextHotkeyBox.CapturedModifiers = ModifiersFromWin32(_settingsService.SelectTextModifiers);
+        SelectTextHotkeyBox.CapturedKey = KeyFromVk(_settingsService.SelectTextKey);
+        SelectTextHotkeyBox.HotkeyText = ""; // 强制刷新显示
+
         // 根据当前 Endpoint + Model 匹配预设
         _isLoadingPreset = true;
         var matched = ProviderPresets.FirstOrDefault(p =>
@@ -56,6 +147,70 @@ public partial class SettingsWindow : Window
             p.Model == _settingsService.Model);
         ProviderPresetComboBox.SelectedItem = matched ?? ProviderPresets.Last(); // 最后一个 = 自定义
         _isLoadingPreset = false;
+    }
+
+    private static ModifierKeys ModifiersFromWin32(uint mods)
+    {
+        var result = ModifierKeys.None;
+        if ((mods & 0x0001) != 0) result |= ModifierKeys.Alt;
+        if ((mods & 0x0002) != 0) result |= ModifierKeys.Control;
+        if ((mods & 0x0004) != 0) result |= ModifierKeys.Shift;
+        if ((mods & 0x0008) != 0) result |= ModifierKeys.Windows;
+        return result;
+    }
+
+    private static Key KeyFromVk(uint vk) => vk switch
+    {
+        0x20 => Key.Space,
+        0x0D => Key.Enter,
+        0x1B => Key.Escape,
+        0x08 => Key.Back,
+        0x2E => Key.Delete,
+        0x09 => Key.Tab,
+        0x21 => Key.PageUp,
+        0x22 => Key.PageDown,
+        0x23 => Key.End,
+        0x24 => Key.Home,
+        0x25 => Key.Left,
+        0x26 => Key.Up,
+        0x27 => Key.Right,
+        0x28 => Key.Down,
+        >= 0x30 and <= 0x39 => (Key)(vk - 0x30 + (int)Key.D0),
+        >= 0x41 and <= 0x5A => (Key)(vk - 0x41 + (int)Key.A),
+        >= 0x70 and <= 0x7B => (Key)(vk - 0x70 + (int)Key.F1),
+        _ => Key.None
+    };
+
+    private static uint VkFromKey(Key key) => key switch
+    {
+        Key.Space => 0x20,
+        Key.Enter => 0x0D,
+        Key.Escape => 0x1B,
+        Key.Back => 0x08,
+        Key.Delete => 0x2E,
+        Key.Tab => 0x09,
+        Key.PageUp => 0x21,
+        Key.PageDown => 0x22,
+        Key.End => 0x23,
+        Key.Home => 0x24,
+        Key.Left => 0x25,
+        Key.Up => 0x26,
+        Key.Right => 0x27,
+        Key.Down => 0x28,
+        >= Key.D0 and <= Key.D9 => (uint)(key - Key.D0 + 0x30),
+        >= Key.A and <= Key.Z => (uint)(key - Key.A + 0x41),
+        >= Key.F1 and <= Key.F12 => (uint)(key - Key.F1 + 0x70),
+        _ => 0
+    };
+
+    private static uint Win32Modifiers(ModifierKeys mods)
+    {
+        uint result = 0;
+        if (mods.HasFlag(ModifierKeys.Alt)) result |= 0x0001;
+        if (mods.HasFlag(ModifierKeys.Control)) result |= 0x0002;
+        if (mods.HasFlag(ModifierKeys.Shift)) result |= 0x0004;
+        if (mods.HasFlag(ModifierKeys.Windows)) result |= 0x0008;
+        return result;
     }
 
     private void ProviderPreset_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -106,6 +261,10 @@ public partial class SettingsWindow : Window
         _settingsService.Model = ModelTextBox.Text.Trim();
         _settingsService.Endpoint = EndpointTextBox.Text.Trim();
         _settingsService.IsAutoStartEnabled = AutoStartCheckBox.IsChecked == true;
+        _settingsService.HotkeyModifiers = Win32Modifiers(MainHotkeyBox.CapturedModifiers);
+        _settingsService.HotkeyKey = VkFromKey(MainHotkeyBox.CapturedKey);
+        _settingsService.SelectTextModifiers = Win32Modifiers(SelectTextHotkeyBox.CapturedModifiers);
+        _settingsService.SelectTextKey = VkFromKey(SelectTextHotkeyBox.CapturedKey);
         _settingsService.Save();
 
         DialogResult = true;

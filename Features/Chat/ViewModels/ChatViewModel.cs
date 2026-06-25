@@ -22,6 +22,8 @@ public partial class ChatViewModel : ObservableObject
     private readonly ChatAgentService _chatAgent;
     private readonly IChatHistoryService _historyService;
     private readonly ModelRoutingService _routing;
+    private readonly TokenUsageService _tokenUsage;
+    private readonly ConversationSummarizer _summarizer;
 
     // 输入历史（环形缓冲区）
     private const int MaxInputHistory = 50;
@@ -55,12 +57,27 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private InfoBarSeverity _infoBarSeverity = InfoBarSeverity.Error;
 
+    /// <summary>Token 用量显示文本（底部状态栏）</summary>
+    [ObservableProperty]
+    private string _tokenDisplay = string.Empty;
+
+    /// <summary>是否为离线模式</summary>
+    [ObservableProperty]
+    private bool _isOffline;
+
     public ChatViewModel(ChatAgentService chatAgent, IChatHistoryService historyService,
-        IDangerousToolPolicy dangerPolicy, ModelRoutingService routing)
+        IDangerousToolPolicy dangerPolicy, ModelRoutingService routing,
+        TokenUsageService tokenUsage, ConversationSummarizer summarizer)
     {
+        Log.Information("[ChatViewModel] 构造开始");
         _chatAgent = chatAgent;
         _historyService = historyService;
         _routing = routing;
+        _tokenUsage = tokenUsage;
+        _summarizer = summarizer;
+
+        // 异步网络探测
+        _ = UpdateOfflineStatusAsync();
 
         // 设置高危工具确认回调（MAF 工具循环在后台线程，需封送到 UI 线程弹窗）
         dangerPolicy.DangerConfirmation = (toolName, argsSummary) =>
@@ -88,6 +105,14 @@ public partial class ChatViewModel : ObservableObject
             foreach (var msg in saved)
                 Messages.Add(msg);
         }
+        Log.Information("[ChatViewModel] 构造完成");
+    }
+
+    /// <summary>更新离线状态（异步网络探测）</summary>
+    private async Task UpdateOfflineStatusAsync()
+    {
+        await _chatAgent.ProbeNetworkAsync();
+        IsOffline = _chatAgent.IsOffline;
     }
 
     /// <summary>
@@ -139,6 +164,9 @@ public partial class ChatViewModel : ObservableObject
         IsWorking = true;
         ShowInfoBar = false;
 
+        // 刷新离线状态
+        IsOffline = _chatAgent.IsOffline;
+
         var assistantMsg = new ChatMessage
         {
             Role = MessageRole.Assistant,
@@ -146,6 +174,29 @@ public partial class ChatViewModel : ObservableObject
             Timestamp = DateTime.Now
         };
         Messages.Add(assistantMsg);
+
+        // ═══ 离线模式：强制走本地模型 ═══
+        if (IsOffline)
+        {
+            try
+            {
+                var (localResponse, _) = await _routing.TryLocalAsync(text);
+                assistantMsg.Content = localResponse;
+                IsWorking = false;
+                _tokenUsage.RecordUsage(text, localResponse, false);
+                TokenDisplay = _tokenUsage.GetDisplayText();
+                TrimDisplay();
+                _historyService.Save(Messages);
+                return;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "[ChatViewModel] 离线本地推理失败");
+                assistantMsg.Content = "[离线模式] 本地模型暂不可用，请稍后重试。";
+                IsWorking = false;
+                return;
+            }
+        }
 
         // ═══ 自动模型路由：语义意图分类 → 简单对话走本地（零 token） ═══
         if (_routing.ShouldTryLocal(text))
@@ -161,6 +212,8 @@ public partial class ChatViewModel : ObservableObject
                 {
                     assistantMsg.Content = localResponse;
                     IsWorking = false;
+                    _tokenUsage.RecordUsage(text, localResponse, false);
+                    TokenDisplay = _tokenUsage.GetDisplayText();
                     TrimDisplay();
                     _historyService.Save(Messages);
                     return;
@@ -183,6 +236,9 @@ public partial class ChatViewModel : ObservableObject
             {
                 assistantMsg.Content = "[工具调用完成]";
             }
+
+            // 记录远程 API 用量
+            _tokenUsage.RecordUsage(text, fullContent, true);
         }
         catch (OperationCanceledException)
         {
@@ -204,10 +260,14 @@ public partial class ChatViewModel : ObservableObject
             var cts = Interlocked.Exchange(ref _currentCts, null);
             cts?.Dispose();
             IsWorking = false;
+            TokenDisplay = _tokenUsage.GetDisplayText();
             TrimDisplay();
 
             // 持久化到磁盘
             _historyService.Save(Messages);
+
+            // 递增摘要计数器并检查是否需要触发摘要
+            _chatAgent.IncrementSummarizerRound();
 
             // 检测重复工具调用模式（由 ChatAgentService 内部的 PatternDetector 处理）
             var suggestion = _chatAgent.CollectPatternSuggestion();
@@ -219,6 +279,48 @@ public partial class ChatViewModel : ObservableObject
                     Content = suggestion,
                     Timestamp = DateTime.Now
                 });
+            }
+
+            // 触发对话摘要（本地模型，异步不阻塞）
+            if (_chatAgent.ShouldSummarize)
+            {
+                _ = SummarizeAndPruneAsync();
+            }
+        }
+
+        // 异步生成摘要并修剪旧消息（fire-and-forget）
+        async Task SummarizeAndPruneAsync()
+        {
+            try
+            {
+                var summary = await _summarizer.SummarizeAsync(Messages);
+                if (summary is not null)
+                {
+                    // 从显示列表中移除摘要过的旧消息（保留系统消息和最近 10 轮）
+                    var keepCount = 20; // 10 rounds * 2 (user+assistant)
+                    var toRemove = Messages
+                        .Where(m => m.Role is MessageRole.User or MessageRole.Assistant)
+                        .TakeLast(Messages.Count - keepCount)
+                        .TakeWhile(_ => true)
+                        .ToList();
+
+                    foreach (var msg in toRemove)
+                        Messages.Remove(msg);
+
+                    // 注入摘要提示
+                    Messages.Insert(0, new ChatMessage
+                    {
+                        Role = MessageRole.System,
+                        Content = $"[对话摘要] {summary}",
+                        Timestamp = DateTime.Now
+                    });
+
+                    _historyService.Save(Messages);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Debug(ex, "[ChatViewModel] 摘要生成失败");
             }
         }
     }

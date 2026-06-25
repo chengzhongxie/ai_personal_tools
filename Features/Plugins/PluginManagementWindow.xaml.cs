@@ -2,8 +2,10 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
+using Microsoft.Extensions.DependencyInjection;
 using PersonalAssistant.Core.Plugins;
 using PersonalAssistant.Core.Services;
+using PersonalAssistant.Features.Plugins.Services;
 using PersonalAssistant.Infrastructure.Common.Services;
 
 namespace PersonalAssistant.Features.Plugins;
@@ -207,6 +209,14 @@ public partial class PluginManagementWindow : Window
 
         // 刷新列表（仅添加新导入的外部插件）
         BuildPluginList();
+    }
+
+    private void OpenMarketplace_Click(object sender, RoutedEventArgs e)
+    {
+        var marketplace = new PluginMarketplaceWindow(
+            App.Services.GetRequiredService<PluginMarketplaceService>(),
+            App.Services);
+        marketplace.ShowDialog();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)

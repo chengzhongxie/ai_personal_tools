@@ -6,7 +6,7 @@
         ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen"
         WindowStyle="ToolWindow"
-        Background="#131720">
+        Background="{DynamicResource Brush.BackgroundPrimary}">
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </Window.Resources>
@@ -20,7 +20,7 @@
 
         <!-- Header -->
         <TextBlock Grid.Row="0" FontSize="18" FontWeight="SemiBold"
-                   Foreground="#E8ECF1" Text="插件管理"
+                   Foreground="{DynamicResource Brush.ForegroundPrimary}" Text="插件管理"
                    Margin="0,0,0,16" />
 
         <!-- Plugin List -->
@@ -29,7 +29,7 @@
             <ItemsControl x:Name="PluginsItemsControl">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Border Background="#1A1F2E" CornerRadius="8"
+                        <Border Background="{DynamicResource Brush.BackgroundSecondary}" CornerRadius="8"
                                 Padding="12" Margin="0,0,0,8">
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -43,7 +43,7 @@
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                         <TextBlock Text="{Binding Name}"
                                                    FontSize="14" FontWeight="SemiBold"
-                                                   Foreground="#E8ECF1" />
+                                                   Foreground="{DynamicResource Brush.ForegroundPrimary}" />
                                         <TextBlock Text="{Binding Type}"
                                                    FontSize="11" Margin="8,0,0,0"
                                                    VerticalAlignment="Center">
@@ -54,7 +54,7 @@
                                                             <Setter Property="Foreground" Value="#6B7280" />
                                                         </DataTrigger>
                                                         <DataTrigger Binding="{Binding Type}" Value="外部">
-                                                            <Setter Property="Foreground" Value="#3B82F6" />
+                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.AccentStart}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -72,12 +72,12 @@
                                         </ItemsControl.ItemsPanel>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border Background="#232A3A"
+                                                <Border Background="{DynamicResource Brush.BorderSecondary}"
                                                         CornerRadius="4"
                                                         Padding="4,1" Margin="0,0,4,2">
                                                     <TextBlock Text="{Binding}"
                                                                FontSize="10"
-                                                               Foreground="#9CA3AF" />
+                                                               Foreground="{DynamicResource Brush.ForegroundTertiary}" />
                                                 </Border>
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
@@ -86,7 +86,7 @@
                                     <!-- Source File (external only) -->
                                     <TextBlock Text="{Binding SourceFile}"
                                                FontSize="10" FontStyle="Italic"
-                                               Foreground="#6B7280" Margin="0,2,0,0"
+                                               Foreground="{DynamicResource Brush.ForegroundMuted}" Margin="0,2,0,0"
                                                Visibility="{Binding HasSourceFile,
                                                    Converter={StaticResource BoolToVisibility}}" />
                                 </StackPanel>
@@ -125,7 +125,7 @@
         <!-- Restart Tip -->
         <TextBlock x:Name="RestartTip" Grid.Row="2"
                    Text="插件状态变更后需重启应用生效"
-                   FontSize="12" Foreground="#F59E0B"
+                   FontSize="12" Foreground="{DynamicResource Brush.StatusOffline}"
                    Margin="0,10,0,0" Visibility="Collapsed" />
 
         <!-- Buttons -->
@@ -133,9 +133,20 @@
                     HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button Content="导入插件" Padding="12,6"
                     Margin="0,0,10,0"
-                    Background="#2A3040" Foreground="#D1D5DB"
+                    Background="{DynamicResource Brush.BorderSecondary}" Foreground="{DynamicResource Brush.ForegroundSecondary}"
                     BorderThickness="0" FontSize="12" Cursor="Hand"
                     Click="ImportPlugin_Click">
+                <Button.Resources>
+                    <Style TargetType="Border">
+                        <Setter Property="CornerRadius" Value="6" />
+                    </Style>
+                </Button.Resources>
+            </Button>
+            <Button Content="浏览市场" Padding="12,6"
+                    Margin="0,0,10,0"
+                    Background="{DynamicResource Brush.BorderSecondary}" Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                    BorderThickness="0" FontSize="12" Cursor="Hand"
+                    Click="OpenMarketplace_Click">
                 <Button.Resources>
                     <Style TargetType="Border">
                         <Setter Property="CornerRadius" Value="6" />
@@ -154,13 +165,8 @@
                 <Button.Template>
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="BtnBorder" CornerRadius="6"
-                                Padding="18,6">
-                            <Border.Background>
-                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                                    <GradientStop Color="#3B82F6" Offset="0" />
-                                    <GradientStop Color="#6366F1" Offset="1" />
-                                </LinearGradientBrush>
-                            </Border.Background>
+                                Padding="18,6"
+                                Background="{DynamicResource Brush.AccentBtn}">
                             <ContentPresenter HorizontalAlignment="Center"
                                               VerticalAlignment="Center" />
                         </Border>

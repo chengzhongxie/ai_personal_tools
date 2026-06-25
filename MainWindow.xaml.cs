@@ -10,23 +10,20 @@ using Wpf.Ui.Controls;
 namespace PersonalAssistant;
 
 /// <summary>
-/// 应用程序主窗口，基于 WPF-UI FluentWindow，内嵌 ChatView
+/// 应用程序主窗口，基于 WPF-UI FluentWindow，内嵌 ChatView。
+/// 热键配置从 UserSettingsService 读取，支持用户自定义。
 /// </summary>
 public partial class MainWindow : FluentWindow
 {
     private readonly TrayService _trayService;
     private readonly MascotWindow _mascotWindow;
+    private readonly UserSettingsService _settings;
     private bool _isShuttingDown;
 
     // Win32 global hotkey
     private const int WM_HOTKEY = 0x0312;
     private const int HOTKEY_ID = 9001;
-    private const uint MOD_ALT = 0x0001;
-    private const uint VK_SPACE = 0x20;
-
-    // Selected text quick action: Ctrl+Alt+Space
     private const int HOTKEY_SELTEXT = 9002;
-    private const uint MOD_CTRL_ALT = 0x0001 | 0x0002;  // MOD_ALT | MOD_CONTROL
 
     [DllImport("user32.dll")]
     private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -41,39 +38,42 @@ public partial class MainWindow : FluentWindow
     private const byte VK_C = 0x43;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
-    /// <summary>DI 构造函数，注入 TrayService 和 MascotWindow</summary>
-    public MainWindow(TrayService trayService, MascotWindow mascotWindow)
+    /// <summary>DI 构造函数，注入 TrayService、MascotWindow 和 UserSettingsService</summary>
+    public MainWindow(TrayService trayService, MascotWindow mascotWindow,
+        UserSettingsService settings)
     {
+        Serilog.Log.Information("[MainWindow] 构造开始");
         _trayService = trayService;
         _mascotWindow = mascotWindow;
+        _settings = settings;
         DataContext = this;
         InitializeComponent();
+        Serilog.Log.Information("[MainWindow] InitializeComponent完成");
 
         // 设置窗口图标（与托盘图标一致：蓝紫渐变 AI）
         Icon = AppIconGenerator.WpfIcon;
+        Serilog.Log.Information("[MainWindow] 构造完成");
     }
 
-    /// <summary>
-    /// 最小化时隐藏到托盘，不在任务栏显示
-    /// </summary>
+    /// <summary>注册全局热键（从用户设置读取配置）</summary>
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
 
-        // 注册全局热键 Alt+Space，在任何应用中按下都会触发
         var hwnd = new WindowInteropHelper(this).Handle;
-        if (!RegisterHotKey(hwnd, HOTKEY_ID, MOD_ALT, VK_SPACE))
+
+        // 注册主窗口热键（默认 Alt+Space）
+        if (!RegisterHotKey(hwnd, HOTKEY_ID, _settings.HotkeyModifiers, _settings.HotkeyKey))
         {
-            // 热键可能被其他程序占用（如 PowerToys），通过托盘提示用户
             _trayService.ShowNotification("热键注册失败",
-                "Alt+Space 被其他程序占用（如 PowerToys），全局热键不可用");
+                "全局热键被其他程序占用（如 PowerToys），请在设置中修改快捷键");
         }
 
-        // 注册 Ctrl+Alt+Space：在任何应用中选中文本后按下，将文本发送给 AI 处理
-        if (!RegisterHotKey(hwnd, HOTKEY_SELTEXT, MOD_CTRL_ALT, VK_SPACE))
+        // 注册选中文本热键（默认 Ctrl+Alt+Space）
+        if (!RegisterHotKey(hwnd, HOTKEY_SELTEXT, _settings.SelectTextModifiers, _settings.SelectTextKey))
         {
             _trayService.ShowNotification("热键注册失败",
-                "Ctrl+Alt+Space 被其他程序占用，选中文本快捷发送不可用");
+                "选中文本快捷键被占用，请在设置中修改快捷键");
         }
 
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);

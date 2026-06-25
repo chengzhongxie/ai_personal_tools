@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using PersonalAssistant.Core.Interfaces;
 using PersonalAssistant.Core.Services;
 using PersonalAssistant.Features.Workflow.Services;
@@ -14,18 +15,21 @@ namespace PersonalAssistant.Features.Plugins.WorkflowPlugin;
 public class WorkflowPlugin : IToolPlugin
 {
     private readonly WorkflowStorageService _storage;
-    private readonly IToolPluginHost _pluginHost;
-    private readonly IDangerousToolPolicy _policy;
+    private readonly IServiceProvider _services;
+    private IToolPluginHost? _pluginHost;
+    private IDangerousToolPolicy? _policy;
     private readonly PluginSharedState _sharedState;
+    private IToolPluginHost PluginHost => _pluginHost ??= _services.GetRequiredService<IToolPluginHost>();
+    private IDangerousToolPolicy Policy => _policy ??= _services.GetRequiredService<IDangerousToolPolicy>();
 
     public string Name => "Workflow";
 
-    public WorkflowPlugin(WorkflowStorageService storage, IToolPluginHost pluginHost,
-        IDangerousToolPolicy policy, PluginSharedState sharedState)
+    public WorkflowPlugin(WorkflowStorageService storage,
+        IServiceProvider services,
+        PluginSharedState sharedState)
     {
         _storage = storage;
-        _pluginHost = pluginHost;
-        _policy = policy;
+        _services = services;
         _sharedState = sharedState;
     }
 
@@ -45,8 +49,8 @@ public class WorkflowPlugin : IToolPlugin
         return toolName switch
         {
             "list_workflows" => WorkflowToolMethods.ListWorkflows(_storage),
-            "run_workflow" => await WorkflowToolMethods.RunWorkflow(args, _storage, _pluginHost),
-            "delete_workflow" => WorkflowToolMethods.DeleteWorkflow(args, _storage, _policy),
+            "run_workflow" => await WorkflowToolMethods.RunWorkflow(args, _storage, PluginHost),
+            "delete_workflow" => WorkflowToolMethods.DeleteWorkflow(args, _storage, Policy),
             "save_workflow" => WorkflowToolMethods.SaveWorkflow(args, _storage, _sharedState),
             _ => null
         };
@@ -60,12 +64,12 @@ public class WorkflowPlugin : IToolPlugin
     [Description("Execute a saved workflow locally without calling AI. Returns execution results.")]
     private Task<string> RunWorkflowWrapper(
         [Description("Name of the workflow to execute")] string name) =>
-        WorkflowToolMethods.RunWorkflow(name, _storage, _pluginHost);
+        WorkflowToolMethods.RunWorkflow(name, _storage, PluginHost);
 
     [Description("Delete a saved workflow by name")]
     private string DeleteWorkflowWrapper(
         [Description("Name of the workflow to delete")] string name) =>
-        WorkflowToolMethods.DeleteWorkflow(name, _storage, _policy);
+        WorkflowToolMethods.DeleteWorkflow(name, _storage, Policy);
 
     [Description("Save the most recently detected repeated tool pattern as a named workflow.")]
     private string SaveWorkflowWrapper(

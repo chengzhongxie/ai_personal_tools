@@ -5,6 +5,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Microsoft.Extensions.DependencyInjection;
+using PersonalAssistant.Features.Widgets;
+using PersonalAssistant.Features.Widgets.Services;
 
 namespace PersonalAssistant.Features.Mascot;
 
@@ -16,6 +18,7 @@ public partial class MascotWindow : Window
 {
     private readonly IServiceProvider _serviceProvider;
     private bool _isDragging;
+    private WidgetPanel? _widgetPanel;
 
     // 瞳孔基准位置
     private const double LpX = 35, LpY = 34, RpX = 59, RpY = 34;
@@ -60,8 +63,10 @@ public partial class MascotWindow : Window
 
     public MascotWindow(IServiceProvider serviceProvider)
     {
+        Serilog.Log.Information("[MascotWindow] 构造开始");
         _serviceProvider = serviceProvider;
         InitializeComponent();
+        Serilog.Log.Information("[MascotWindow] 构造完成");
 
         Loaded += (_, _) => StartFloat();
         IsVisibleChanged += (_, e) =>
@@ -142,8 +147,42 @@ public partial class MascotWindow : Window
         if (!_isDragging)
         {
             AnimateBounce();
+            HideWidgetPanel();
             _serviceProvider.GetRequiredService<MainWindow>().ShowWindow();
         }
+    }
+
+    protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+    {
+        ToggleWidgetPanel();
+    }
+
+    private void ToggleWidgetPanel()
+    {
+        if (_widgetPanel?.IsVisible == true)
+        {
+            HideWidgetPanel();
+        }
+        else
+        {
+            ShowWidgetPanel();
+        }
+    }
+
+    private void ShowWidgetPanel()
+    {
+        if (_widgetPanel is null)
+        {
+            _widgetPanel = _serviceProvider.GetRequiredService<WidgetPanel>();
+            _widgetPanel.Closed += (_, _) => _widgetPanel = null;
+        }
+        _widgetPanel.PositionNear(this);
+        _widgetPanel.Show();
+    }
+
+    private void HideWidgetPanel()
+    {
+        _widgetPanel?.Hide();
     }
 
     // ── 浮动动画控制 ──

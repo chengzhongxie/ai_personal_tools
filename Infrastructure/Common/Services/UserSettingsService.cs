@@ -38,6 +38,21 @@ public class UserSettingsService
     /// <summary>是否开机自启动</summary>
     public bool IsAutoStartEnabled { get; set; }
 
+    /// <summary>主窗口热键修饰符（默认 Alt）</summary>
+    public uint HotkeyModifiers { get; set; } = 0x0001; // MOD_ALT
+
+    /// <summary>主窗口热键虚拟键码（默认 Space）</summary>
+    public uint HotkeyKey { get; set; } = 0x20; // VK_SPACE
+
+    /// <summary>选中文本热键修饰符（默认 Ctrl+Alt）</summary>
+    public uint SelectTextModifiers { get; set; } = 0x0001 | 0x0002; // MOD_ALT | MOD_CONTROL
+
+    /// <summary>选中文本热键虚拟键码（默认 Space）</summary>
+    public uint SelectTextKey { get; set; } = 0x20; // VK_SPACE
+
+    /// <summary>是否使用深色主题（默认 true）</summary>
+    public bool IsDarkTheme { get; set; } = true;
+
     /// <summary>从文件加载设置，若文件不存在则用默认值</summary>
     public UserSettingsService()
     {
@@ -64,7 +79,12 @@ public class UserSettingsService
             ApiKey = ApiKey,
             Model = Model.ToLowerInvariant(),
             Endpoint = Endpoint,
-            IsAutoStartEnabled = IsAutoStartEnabled
+            IsAutoStartEnabled = IsAutoStartEnabled,
+            HotkeyModifiers = HotkeyModifiers,
+            HotkeyKey = HotkeyKey,
+            SelectTextModifiers = SelectTextModifiers,
+            SelectTextKey = SelectTextKey,
+            IsDarkTheme = IsDarkTheme
         }, JsonOptions);
 
         System.IO.File.WriteAllText(SettingsFilePath, json);
@@ -89,6 +109,11 @@ public class UserSettingsService
                 Model = data.Model ?? "deepseek-v4-flash";
                 Endpoint = data.Endpoint ?? "https://api.deepseek.com";
                 IsAutoStartEnabled = data.IsAutoStartEnabled;
+                HotkeyModifiers = data.HotkeyModifiers != 0 ? data.HotkeyModifiers : 0x0001;
+                HotkeyKey = data.HotkeyKey != 0 ? data.HotkeyKey : 0x20;
+                SelectTextModifiers = data.SelectTextModifiers != 0 ? data.SelectTextModifiers : (0x0001 | 0x0002);
+                SelectTextKey = data.SelectTextKey != 0 ? data.SelectTextKey : 0x20;
+                IsDarkTheme = data.IsDarkTheme;
             }
         }
         catch (Exception ex)
@@ -125,5 +150,10 @@ public class UserSettingsService
         public string? Model { get; init; }
         public string? Endpoint { get; init; }
         public bool IsAutoStartEnabled { get; init; }
+        public uint HotkeyModifiers { get; init; }
+        public uint HotkeyKey { get; init; }
+        public uint SelectTextModifiers { get; init; }
+        public uint SelectTextKey { get; init; }
+        public bool IsDarkTheme { get; init; }
     }
 }

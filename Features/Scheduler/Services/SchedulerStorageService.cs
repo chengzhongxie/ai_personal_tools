@@ -32,14 +32,22 @@ public class SchedulerStorageService
         File.WriteAllText(path, json);
     }
 
-    /// <summary>更新任务的 LastRunDate 并持久化</summary>
-    public void UpdateLastRunDate(string name, string date)
+    /// <summary>更新任务的 LastRunTimestamp 并持久化</summary>
+    public void UpdateLastRunTimestamp(string name, string timestamp)
     {
         var task = Load(name);
         if (task is null) return;
 
-        task.LastRunDate = date;
+        task.LastRunTimestamp = timestamp;
         Save(task);
+    }
+
+    /// <summary>[兼容旧版] 更新任务的 LastRunTimestamp 并持久化</summary>
+    [Obsolete("Use UpdateLastRunTimestamp instead")]
+    public void UpdateLastRunDate(string name, string date)
+    {
+        // 旧版 date 是 "yyyy-MM-dd"，添加默认分钟
+        UpdateLastRunTimestamp(name, date + " 00:00");
     }
 
     /// <summary>加载单个调度任务</summary>

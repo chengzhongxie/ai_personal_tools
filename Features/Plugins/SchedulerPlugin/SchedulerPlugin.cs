@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using PersonalAssistant.Core.Interfaces;
 using PersonalAssistant.Features.Scheduler.Services;
 
@@ -13,16 +14,18 @@ namespace PersonalAssistant.Features.Plugins.SchedulerPlugin;
 public class SchedulerPlugin : IToolPlugin
 {
     private readonly SchedulerStorageService _storage;
-    private readonly IToolPluginHost _pluginHost;
-    private readonly IDangerousToolPolicy _policy;
+    private readonly IServiceProvider _services;
+    private IToolPluginHost? _pluginHost;
+    private IDangerousToolPolicy? _policy;
+    private IToolPluginHost PluginHost => _pluginHost ??= _services.GetRequiredService<IToolPluginHost>();
+    private IDangerousToolPolicy Policy => _policy ??= _services.GetRequiredService<IDangerousToolPolicy>();
 
     public string Name => "Scheduler";
 
-    public SchedulerPlugin(SchedulerStorageService storage, IToolPluginHost pluginHost, IDangerousToolPolicy policy)
+    public SchedulerPlugin(SchedulerStorageService storage, IServiceProvider services)
     {
         _storage = storage;
-        _pluginHost = pluginHost;
-        _policy = policy;
+        _services = services;
     }
 
     public AIFunction[] GetTools()
@@ -39,9 +42,9 @@ public class SchedulerPlugin : IToolPlugin
     {
         string? result = toolName switch
         {
-            "add_schedule" => SchedulerToolMethods.AddSchedule(args, "", "", _storage, _pluginHost),
+            "add_schedule" => SchedulerToolMethods.AddSchedule(args, "", "", _storage, PluginHost),
             "list_schedules" => SchedulerToolMethods.ListSchedules(_storage),
-            "delete_schedule" => SchedulerToolMethods.DeleteSchedule(args, _storage, _policy),
+            "delete_schedule" => SchedulerToolMethods.DeleteSchedule(args, _storage, Policy),
             _ => null
         };
 
@@ -62,7 +65,7 @@ public class SchedulerPlugin : IToolPlugin
         [Description("Time in HH:mm format, e.g. '09:00'")] string time,
         [Description("Name of the tool to execute, e.g. 'run_shell', 'run_command'")] string toolName,
         [Description("Arguments to pass to the tool")] string args) =>
-        SchedulerToolMethods.AddSchedule(time, toolName, args, _storage, _pluginHost);
+        SchedulerToolMethods.AddSchedule(time, toolName, args, _storage, PluginHost);
 
     [Description("List all scheduled daily tasks")]
     private string ListSchedules() => SchedulerToolMethods.ListSchedules(_storage);
@@ -70,5 +73,5 @@ public class SchedulerPlugin : IToolPlugin
     [Description("Delete a scheduled daily task by name")]
     private string DeleteScheduleWrapper(
         [Description("Name of the scheduled task to delete")] string name) =>
-        SchedulerToolMethods.DeleteSchedule(name, _storage, _policy);
+        SchedulerToolMethods.DeleteSchedule(name, _storage, Policy);
 }

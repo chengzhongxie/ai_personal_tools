@@ -19,6 +19,9 @@ public class PluginLoader
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "PersonalAssistant", "Plugins");
 
+    // 跟踪每个文件的 ALC，供热重载时卸载
+    private readonly Dictionary<string, AssemblyLoadContext> _alcMap = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
     /// 编译并加载 Plugins 目录下所有 .cs 文件中的 PluginBase 子类。
     /// 编译失败的插件会被跳过（warning 日志），不影响其他插件和应用正常运行。
@@ -40,30 +43,25 @@ public class PluginLoader
 
         Log.Information("[PluginLoader] 发现 {Count} 个 .cs 文件，开始编译", csFiles.Length);
 
-        // 收集编译所需的程序集引用
         var references = GetCompilationReferences();
 
         foreach (var file in csFiles)
         {
-            var fileName = Path.GetFileName(file);
             try
             {
-                var source = File.ReadAllText(file);
-                var pluginBases = CompileAndLoad(fileName, source, references);
-                foreach (var pb in pluginBases)
-                    pb.SourceFilePath = file;
-                result.AddRange(pluginBases);
-
+                var pluginBases = CompileAndLoad(file, references);
                 foreach (var pb in pluginBases)
                 {
+                    pb.SourceFilePath = file;
                     var toolDefs = pb.GetToolDefinitions();
                     Log.Information("[PluginLoader] 插件 {Name} 加载成功: {Count} 个工具",
                         pb.Name, toolDefs.Length);
                 }
+                result.AddRange(pluginBases);
             }
             catch (Exception ex)
             {
-                Log.Warning(ex, "[PluginLoader] 跳过编译失败的插件文件: {File}", fileName);
+                Log.Warning(ex, "[PluginLoader] 跳过编译失败的插件文件: {File}", Path.GetFileName(file));
             }
         }
 
@@ -72,11 +70,57 @@ public class PluginLoader
     }
 
     /// <summary>
-    /// 编译单个 .cs 文件，反射获取所有 PluginBase 子类实例。
+    /// 热重载单个插件文件：卸载旧 ALC → 重新编译 → 返回新的 PluginBase 实例。
+    /// 如果编译失败，保留旧实例并返回 null。
     /// </summary>
-    private List<PluginBase> CompileAndLoad(string fileName, string source,
+    /// <param name="filePath">插件 .cs 文件的完整路径</param>
+    /// <returns>新的 PluginBase 实例（失败返回 null）</returns>
+    public PluginBase? ReloadPlugin(string filePath)
+    {
+        var fileName = Path.GetFileName(filePath);
+        Log.Information("[PluginLoader] 热重载插件: {File}", fileName);
+
+        try
+        {
+            // 卸载旧 ALC
+            if (_alcMap.TryGetValue(filePath, out var oldAlc))
+            {
+                _alcMap.Remove(filePath);
+                // ALC 的卸载是异步的，通过 GC 触发
+                oldAlc.Unload();
+            }
+
+            // 重新编译
+            var references = GetCompilationReferences();
+            var pluginBases = CompileAndLoad(filePath, references);
+            var result = pluginBases.FirstOrDefault();
+            if (result is null)
+            {
+                Log.Warning("[PluginLoader] 热重载失败: {File} 中未找到 PluginBase 子类", fileName);
+                return null;
+            }
+
+            result.SourceFilePath = filePath;
+            Log.Information("[PluginLoader] 热重载成功: {Name}", result.Name);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[PluginLoader] 热重载失败: {File}", fileName);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 编译单个 .cs 文件，反射获取所有 PluginBase 子类实例。
+    /// 使用 AssemblyLoadContext 隔离加载，跟踪 ALC 供热重载时卸载。
+    /// </summary>
+    private List<PluginBase> CompileAndLoad(string filePath,
         List<MetadataReference> references)
     {
+        var source = File.ReadAllText(filePath);
+        var fileName = Path.GetFileName(filePath);
+
         var syntaxTree = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions()
             .WithLanguageVersion(LanguageVersion.Latest));
 
@@ -106,9 +150,12 @@ public class PluginLoader
 
         ms.Seek(0, SeekOrigin.Begin);
         var alc = new AssemblyLoadContext(
-            $"Plugin_{Path.GetFileNameWithoutExtension(fileName)}",
+            $"Plugin_{Path.GetFileNameWithoutExtension(fileName)}_{DateTime.UtcNow:HHmmssfff}",
             isCollectible: true);
         var assembly = alc.LoadFromStream(ms);
+
+        // 跟踪 ALC
+        _alcMap[filePath] = alc;
 
         return assembly.GetTypes()
             .Where(t => t.IsClass && !t.IsAbstract && typeof(PluginBase).IsAssignableFrom(t))

@@ -56,6 +56,21 @@ public class WorkflowRecorder
     /// <summary>是否有未收集的录制数据（线程安全）</summary>
     public bool HasPendingRecords { get { lock (_lock) return _currentRound.Count > 0; } }
 
+    /// <summary>
+    /// 扫描当前录制的步骤，检测可提取为变量的重复字符串值。
+    /// 返回建议的变量名→值映射，供 UI 展示或自动保存。
+    /// </summary>
+    public Dictionary<string, string> DetectVariableSuggestions()
+    {
+        List<ToolCallRecord> records;
+        lock (_lock)
+        {
+            records = new List<ToolCallRecord>(_currentRoundFull);
+        }
+
+        return WorkflowExecutorService.DetectVariables(records);
+    }
+
     public static List<ToolCallRecord> SequenceToRecords(List<string> toolNames)
     {
         return toolNames.Select(name => new ToolCallRecord

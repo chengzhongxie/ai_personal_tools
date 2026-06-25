@@ -56,7 +56,8 @@ public partial class App : Application
                 services.Scan(scan => scan
                     .FromApplicationDependencies(a =>
                         a.FullName!.StartsWith("PersonalAssistant"))
-                    .AddClasses(c => c.AssignableTo<IToolPlugin>())
+                    .AddClasses(c => c.AssignableTo<IToolPlugin>()
+                        .Where(t => t != typeof(Core.Plugins.ExternalPluginAdapter)))
                     .As<IToolPlugin>()
                     .WithSingletonLifetime());
 
@@ -93,6 +94,13 @@ public partial class App : Application
                 // 插件状态持久化（无接口，必须在 PluginAggregator 之前注册）
                 services.AddSingleton<PluginStateService>();
 
+                // 主题服务（无接口）
+                services.AddSingleton<Infrastructure.Common.Services.ThemeService>();
+
+                // 悬浮卡片服务（无接口）
+                services.AddSingleton<Features.Widgets.Services.WidgetConfigService>();
+                services.AddSingleton<Features.Widgets.WidgetPanel>();
+
                 // 托盘服务（无接口，需提前初始化）
                 services.AddSingleton<TrayService>();
 
@@ -112,6 +120,18 @@ public partial class App : Application
                 services.AddSingleton<Features.Scheduler.Services.SchedulerStorageService>();
                 services.AddSingleton<Features.Scheduler.Services.SchedulerService>();
 
+                // Token 用量统计（无接口）
+                services.AddSingleton<Features.Chat.Services.TokenUsageService>();
+
+                // 对话摘要器（无接口）
+                services.AddSingleton<Features.Chat.Services.ConversationSummarizer>();
+
+                // 知识库服务（无接口）
+                services.AddSingleton<Features.KnowledgeBase.Services.KnowledgeBaseService>();
+
+                // 对话导出服务（无接口）
+                services.AddSingleton<Features.Chat.Services.ChatExportService>();
+
                 // MAF 聊天代理（无接口）
                 services.AddSingleton<Features.Chat.Services.ChatAgentService>();
 
@@ -122,6 +142,13 @@ public partial class App : Application
 
                 // 外部插件加载器
                 services.AddSingleton<Core.Plugins.PluginLoader>();
+
+                // 插件市场服务（按需消耗）
+                services.AddSingleton<Features.Plugins.Services.PluginMarketplaceService>();
+                services.AddTransient<Features.Plugins.PluginMarketplaceWindow>();
+
+                // 插件文件监控（热重载）
+                services.AddSingleton<Features.Plugins.PluginFileWatcher>();
 
                 // 插件间共享状态
                 services.AddSingleton<PluginSharedState>();
@@ -145,35 +172,54 @@ public partial class App : Application
     /// </summary>
     protected override async void OnStartup(StartupEventArgs e)
     {
-        await _host.StartAsync();
-
-        var mainWindow = Services.GetRequiredService<MainWindow>();
-        mainWindow.Show();
-
-        // 触发 TrayService 初始化（托盘图标 + 注册表读取）
-        Services.GetRequiredService<TrayService>();
-
-        // 触发 SchedulerService 初始化（启动定时器）
-        Services.GetRequiredService<Features.Scheduler.Services.SchedulerService>();
-
-        // 后台预热本地模型（下载/加载，不阻塞 UI）
-        _ = Task.Run(async () =>
+        try
         {
-            try
+            await _host.StartAsync();
+
+            // 初始化主题（必须在 MainWindow 之前，保证 DynamicResource 可用）
+            Services.GetRequiredService<Infrastructure.Common.Services.ThemeService>().Initialize();
+            Log.Information("[App] 主题初始化完成，准备创建主窗口");
+
+            var mainWindow = Services.GetRequiredService<MainWindow>();
+            Log.Information("[App] 主窗口创建成功，准备显示");
+            mainWindow.Show();
+            Log.Information("[App] 主窗口已显示 Visible={Visible} State={State} L={L} T={T} W={W} H={H}",
+                mainWindow.Visibility, mainWindow.WindowState,
+                mainWindow.Left, mainWindow.Top, mainWindow.Width, mainWindow.Height);
+
+            // 触发 TrayService 初始化（托盘图标 + 注册表读取）
+            Services.GetRequiredService<TrayService>();
+
+            // 触发 SchedulerService 初始化（启动定时器）
+            Services.GetRequiredService<Features.Scheduler.Services.SchedulerService>();
+
+            // 加载知识库索引（如果已存在）
+            Services.GetRequiredService<Features.KnowledgeBase.Services.KnowledgeBaseService>().LoadIndex();
+
+            // 后台预热本地模型（下载/加载，不阻塞 UI）
+            _ = Task.Run(async () =>
             {
-                var localModel = Services.GetRequiredService<
-                    Features.Chat.Services.LocalModelService>();
-                var result = await localModel.EnsureModelAvailableAsync();
-                if (result is null)
-                    Log.Information("[App] 本地模型预热完成");
-                else
-                    Log.Warning("[App] 本地模型预热未完成: {Msg}", result);
-            }
-            catch (Exception ex)
-            {
-                Log.Warning(ex, "[App] 本地模型预热异常");
-            }
-        });
+                try
+                {
+                    var localModel = Services.GetRequiredService<
+                        Features.Chat.Services.LocalModelService>();
+                    var result = await localModel.EnsureModelAvailableAsync();
+                    if (result is null)
+                        Log.Information("[App] 本地模型预热完成");
+                    else
+                        Log.Warning("[App] 本地模型预热未完成: {Msg}", result);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[App] 本地模型预热异常");
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Fatal(ex, "[App] 启动过程异常");
+            MessageBox.Show($"启动失败:\n\n{ex}", "错误", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
 
         base.OnStartup(e);
     }

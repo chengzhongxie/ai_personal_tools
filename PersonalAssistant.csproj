@@ -15,10 +15,12 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+    <PackageReference Include="Cronos" Version="0.9.0" />
     <PackageReference Include="HtmlAgilityPack" Version="1.12.4" />
     <PackageReference Include="Markdig.Wpf" Version="0.5.0.1" />
     <PackageReference Include="Microsoft.Agents.AI.OpenAI" Version="1.*" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.9" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.21.0" />
     <PackageReference Include="OpenAI" Version="2.11.0" />
     <PackageReference Include="Scrutor" Version="6.1.0" />
     <PackageReference Include="Serilog" Version="4.3.0" />
@@ -34,6 +36,11 @@
 
   <ItemGroup>
     <Folder Include="Assets\" />
+  </ItemGroup>
+
+  <!-- 主题文件：打包时自动包含 -->
+  <ItemGroup>
+    <Content Include="Infrastructure\Common\Themes\*.xaml" CopyToOutputDirectory="PreserveNewest" Link="Infrastructure\Common\Themes\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- 本地模型 + 下载配置：打包时自动包含 -->

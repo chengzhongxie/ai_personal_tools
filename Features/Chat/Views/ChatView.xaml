@@ -7,29 +7,12 @@
              xmlns:helpers="clr-namespace:PersonalAssistant.Infrastructure.Common.Helpers"
              mc:Ignorable="d"
              d:DesignHeight="650" d:DesignWidth="900"
-             Background="#0B0E14">
+             Background="{DynamicResource Brush.BackgroundDeep}">
 
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
+        <helpers:InverseBoolToVisibilityConverter x:Key="InvBoolToVis" />
         <helpers:MarkdownToFlowDocumentConverter x:Key="MarkdownToDoc" />
-
-        <!-- 用户消息气泡渐变 -->
-        <LinearGradientBrush x:Key="UserBubbleBrush" StartPoint="0,0" EndPoint="1,1">
-            <GradientStop Color="#3B82F6" Offset="0" />
-            <GradientStop Color="#6366F1" Offset="1" />
-        </LinearGradientBrush>
-
-        <!-- 发送按钮渐变 -->
-        <LinearGradientBrush x:Key="SendBtnBrush" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Color="#3B82F6" Offset="0" />
-            <GradientStop Color="#6366F1" Offset="1" />
-        </LinearGradientBrush>
-
-        <!-- 发送按钮悬停渐变 -->
-        <LinearGradientBrush x:Key="SendBtnHoverBrush" StartPoint="0,0" EndPoint="1,0">
-            <GradientStop Color="#4F8EF7" Offset="0" />
-            <GradientStop Color="#7B73F5" Offset="1" />
-        </LinearGradientBrush>
 
     </UserControl.Resources>
 
@@ -42,29 +25,60 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Padding="16,8" Background="#131720"
-                BorderBrush="#1E2430" BorderThickness="0,0,0,1">
+        <Border Grid.Row="0" Padding="16,8"
+                Background="{DynamicResource Brush.BackgroundPrimary}"
+                BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                    <TextBlock Foreground="#6B7280" FontSize="11"
+                    <TextBlock Foreground="{DynamicResource Brush.ForegroundMuted}" FontSize="11"
                                Text="DeepSeek AI · 文件读写 · 命令执行 · 网页抓取" />
                 </StackPanel>
 
-                <!-- 状态指示灯 -->
-                <Border Grid.Column="1" Width="8" Height="8"
-                        CornerRadius="4" Background="#22C55E"
-                        VerticalAlignment="Center" Margin="0,0,12,0" />
+                <!-- Token 用量显示 -->
+                <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                           FontSize="10" Foreground="{DynamicResource Brush.ForegroundSubtle}"
+                           Margin="0,0,16,0"
+                           Text="{Binding ViewModel.TokenDisplay}" />
+
+                <!-- 离线指示灯 -->
+                <Border Grid.Column="2" VerticalAlignment="Center"
+                        Margin="0,0,4,0"
+                        Visibility="{Binding ViewModel.IsOffline, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Border Width="8" Height="8" CornerRadius="4"
+                                Background="{DynamicResource Brush.StatusOffline}">
+                            <Border.Triggers>
+                                <EventTrigger RoutedEvent="Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                            <DoubleAnimation Storyboard.TargetProperty="Opacity"
+                                                             From="1.0" To="0.3"
+                                                             Duration="0:0:1" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </Border.Triggers>
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- 在线状态指示灯 -->
+                <Border Grid.Column="2" Width="8" Height="8"
+                        CornerRadius="4" Background="{DynamicResource Brush.StatusOnline}"
+                        VerticalAlignment="Center" Margin="0,0,12,0"
+                        Visibility="{Binding ViewModel.IsOffline, Converter={StaticResource InvBoolToVis}}" />
             </Grid>
         </Border>
 
         <!-- Messages Area -->
         <ScrollViewer Grid.Row="1" x:Name="MessageScroll"
                       VerticalScrollBarVisibility="Hidden"
-                      Background="#0B0E14">
+                      Background="{DynamicResource Brush.BackgroundDeep}">
             <ItemsControl ItemsSource="{Binding ViewModel.Messages}"
                           Margin="16,12">
                 <ItemsControl.ItemTemplate>
@@ -80,15 +94,15 @@
                                             <!-- 用户消息：蓝色渐变，右对齐 -->
                                             <DataTrigger Binding="{Binding Role}" Value="User">
                                                 <Setter Property="Background"
-                                                        Value="{StaticResource UserBubbleBrush}" />
+                                                        Value="{DynamicResource Brush.UserBubble}" />
                                                 <Setter Property="HorizontalAlignment" Value="Right" />
                                             </DataTrigger>
 
                                             <!-- AI 回复：深色卡片，左对齐 -->
                                             <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                <Setter Property="Background" Value="#1A1F2E" />
+                                                <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
                                                 <Setter Property="HorizontalAlignment" Value="Left" />
-                                                <Setter Property="BorderBrush" Value="#2A3040" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSecondary}" />
                                                 <Setter Property="BorderThickness" Value="1" />
                                             </DataTrigger>
 
@@ -114,7 +128,7 @@
                                         MaxHeight="400">
                                         <FlowDocumentScrollViewer.Style>
                                             <Style TargetType="FlowDocumentScrollViewer">
-                                                <Setter Property="Foreground" Value="#D1D5DB" />
+                                                <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSecondary}" />
                                                 <Setter Property="FontSize" Value="13.5" />
                                                 <Setter Property="Background" Value="Transparent" />
                                                 <Style.Triggers>
@@ -122,11 +136,11 @@
                                                         <Setter Property="Foreground" Value="#FFFFFF" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="System">
-                                                        <Setter Property="Foreground" Value="#6B7280" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundMuted}" />
                                                         <Setter Property="FontSize" Value="11" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="Tool">
-                                                        <Setter Property="Foreground" Value="#6B7280" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundMuted}" />
                                                         <Setter Property="FontSize" Value="11" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
@@ -145,7 +159,7 @@
                                                         <Setter Property="Foreground" Value="#93C5FD" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                        <Setter Property="Foreground" Value="#4B5563" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSubtle}" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
@@ -169,8 +183,9 @@
                     IsClosable="True" />
 
         <!-- Input Area -->
-        <Border Grid.Row="3" Padding="16,12" Background="#131720"
-                BorderBrush="#1E2430" BorderThickness="0,1,0,0">
+        <Border Grid.Row="3" Padding="16,12"
+                Background="{DynamicResource Brush.BackgroundPrimary}"
+                BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,1,0,0">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -180,16 +195,16 @@
 
                 <!-- 输入框 -->
                 <Border Grid.Column="0" CornerRadius="8"
-                        Background="#1A1F2E"
-                        BorderBrush="#2A3040" BorderThickness="1"
+                        Background="{DynamicResource Brush.BackgroundSecondary}"
+                        BorderBrush="{DynamicResource Brush.BorderSecondary}" BorderThickness="1"
                         Padding="12,0">
                     <TextBox x:Name="InputTextBox"
                              Text="{Binding ViewModel.InputText, UpdateSourceTrigger=PropertyChanged}"
                              VerticalAlignment="Center"
                              MinHeight="36"
                              Background="Transparent"
-                             Foreground="#E8ECF1"
-                             CaretBrush="#3B82F6"
+                             Foreground="{DynamicResource Brush.ForegroundPrimary}"
+                             CaretBrush="{DynamicResource Brush.AccentStart}"
                              BorderThickness="0"
                              FontSize="13"
                              PreviewKeyDown="InputTextBox_PreviewKeyDown" />
@@ -201,7 +216,7 @@
                         Padding="12,0"
                         MinHeight="36"
                         Command="{Binding ViewModel.CancelCommand}"
-                        Foreground="#FCA5A5"
+                        Foreground="IndianRed"
                         FontSize="12"
                         FontWeight="SemiBold"
                         BorderThickness="0"
@@ -252,7 +267,7 @@
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
                             <Border x:Name="BtnBorder" CornerRadius="8"
-                                    Background="{StaticResource SendBtnBrush}"
+                                    Background="{DynamicResource Brush.SendBtn}"
                                     Padding="18,0">
                                 <ContentPresenter HorizontalAlignment="Center"
                                                   VerticalAlignment="Center" />
@@ -261,7 +276,7 @@
                                 <Trigger Property="IsMouseOver" Value="True">
                                     <Setter TargetName="BtnBorder"
                                             Property="Background"
-                                            Value="{StaticResource SendBtnHoverBrush}" />
+                                            Value="{DynamicResource Brush.SendBtnHover}" />
                                 </Trigger>
                                 <Trigger Property="IsEnabled" Value="False">
                                     <Setter TargetName="BtnBorder" Property="Opacity" Value="0.5" />

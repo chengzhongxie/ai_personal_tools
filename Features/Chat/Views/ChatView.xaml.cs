@@ -2,6 +2,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Extensions.DependencyInjection;
 using PersonalAssistant.Features.Chat.ViewModels;
+using Serilog;
 
 namespace PersonalAssistant.Features.Chat.Views;
 
@@ -14,15 +15,20 @@ public partial class ChatView : UserControl
     public ChatViewModel ViewModel { get; }
 
     /// <summary>无参构造函数：从 DI 容器解析 ViewModel（供 XAML 嵌入使用）</summary>
-    public ChatView() : this(App.Services.GetRequiredService<ChatViewModel>()) { }
+    public ChatView() : this(App.Services.GetRequiredService<ChatViewModel>())
+    {
+        Log.Information("[ChatView] 无参构造完成");
+    }
 
     /// <summary>DI 构造函数</summary>
     /// <param name="viewModel">聊天 ViewModel</param>
     public ChatView(ChatViewModel viewModel)
     {
+        Log.Information("[ChatView] DI构造开始");
         ViewModel = viewModel;
         DataContext = this;
         InitializeComponent();
+        Log.Information("[ChatView] DI构造完成");
     }
 
     /// <summary>聚焦输入框并将光标移至末尾</summary>

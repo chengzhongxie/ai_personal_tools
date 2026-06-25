@@ -1,0 +1,65 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- 深色主题色值 -->
+
+    <Color x:Key="Color.BackgroundDeep">#0B0E14</Color>
+    <Color x:Key="Color.BackgroundPrimary">#131720</Color>
+    <Color x:Key="Color.BackgroundSecondary">#1A1F2E</Color>
+    <Color x:Key="Color.BorderPrimary">#1E2430</Color>
+    <Color x:Key="Color.BorderSecondary">#2A3040</Color>
+    <Color x:Key="Color.ForegroundPrimary">#E8ECF1</Color>
+    <Color x:Key="Color.ForegroundSecondary">#D1D5DB</Color>
+    <Color x:Key="Color.ForegroundTertiary">#9CA3AF</Color>
+    <Color x:Key="Color.ForegroundMuted">#6B7280</Color>
+    <Color x:Key="Color.ForegroundSubtle">#4B5563</Color>
+    <Color x:Key="Color.AccentStart">#3B82F6</Color>
+    <Color x:Key="Color.AccentEnd">#6366F1</Color>
+    <Color x:Key="Color.AccentHoverStart">#4F8EF7</Color>
+    <Color x:Key="Color.AccentHoverEnd">#7B73F5</Color>
+    <Color x:Key="Color.UserBubbleStart">#3B82F6</Color>
+    <Color x:Key="Color.UserBubbleEnd">#6366F1</Color>
+    <Color x:Key="Color.UserTimestamp">#93C5FD</Color>
+    <Color x:Key="Color.CancelBg">#7F1D1D</Color>
+    <Color x:Key="Color.CancelHover">#991B1B</Color>
+    <Color x:Key="Color.CancelFg">#FCA5A5</Color>
+    <Color x:Key="Color.InputCaret">#3B82F6</Color>
+    <Color x:Key="Color.StatusOnline">#22C55E</Color>
+    <Color x:Key="Color.StatusOffline">#F59E0B</Color>
+
+    <SolidColorBrush x:Key="Brush.BackgroundDeep" Color="#0B0E14" />
+    <SolidColorBrush x:Key="Brush.BackgroundPrimary" Color="#131720" />
+    <SolidColorBrush x:Key="Brush.BackgroundSecondary" Color="#1A1F2E" />
+    <SolidColorBrush x:Key="Brush.BorderPrimary" Color="#1E2430" />
+    <SolidColorBrush x:Key="Brush.BorderSecondary" Color="#2A3040" />
+    <SolidColorBrush x:Key="Brush.ForegroundPrimary" Color="#E8ECF1" />
+    <SolidColorBrush x:Key="Brush.ForegroundSecondary" Color="#D1D5DB" />
+    <SolidColorBrush x:Key="Brush.ForegroundTertiary" Color="#9CA3AF" />
+    <SolidColorBrush x:Key="Brush.ForegroundMuted" Color="#6B7280" />
+    <SolidColorBrush x:Key="Brush.ForegroundSubtle" Color="#4B5563" />
+
+    <LinearGradientBrush x:Key="Brush.UserBubble" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#3B82F6" Offset="0" />
+        <GradientStop Color="#6366F1" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Brush.SendBtn" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#3B82F6" Offset="0" />
+        <GradientStop Color="#6366F1" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Brush.SendBtnHover" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#4F8EF7" Offset="0" />
+        <GradientStop Color="#7B73F5" Offset="1" />
+    </LinearGradientBrush>
+
+    <SolidColorBrush x:Key="Brush.AccentStart" Color="#3B82F6" />
+    <SolidColorBrush x:Key="Brush.AccentEnd" Color="#6366F1" />
+    <LinearGradientBrush x:Key="Brush.AccentBtn" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="#3B82F6" Offset="0" />
+        <GradientStop Color="#6366F1" Offset="1" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="Brush.InputCaret" Color="#3B82F6" />
+
+    <SolidColorBrush x:Key="Brush.StatusOnline" Color="#22C55E" />
+    <SolidColorBrush x:Key="Brush.StatusOffline" Color="#F59E0B" />
+
+</ResourceDictionary>

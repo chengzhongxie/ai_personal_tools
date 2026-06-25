@@ -1,10 +1,11 @@
+using Cronos;
 using PersonalAssistant.Core.Interfaces;
 using Serilog;
 
 namespace PersonalAssistant.Features.Scheduler.Services;
 
 /// <summary>
-/// 每日定时任务调度器。
+/// 定时任务调度器，支持 cron 表达式（5 字段标准 cron）。
 /// 使用 30s 间隔的 System.Threading.Timer 检查到期的定时任务并执行。
 /// 通过 IToolPluginHost 接口避免与 ChatAgentService 的循环依赖。
 /// 任务列表内存缓存（5 分钟刷新），避免每次 Tick 读取磁盘。
@@ -46,8 +47,6 @@ public class SchedulerService : IDisposable
         try
         {
             var now = DateTime.Now;
-            var currentTime = now.ToString("HH:mm");
-            var today = now.ToString("yyyy-MM-dd");
 
             // 内存缓存：5 分钟内不重复读取磁盘
             if (_cachedTasks is null || now - _lastCacheRefresh > CacheRefreshInterval)
@@ -58,14 +57,37 @@ public class SchedulerService : IDisposable
 
             foreach (var task in _cachedTasks)
             {
-                if (task.TimeOfDay != currentTime)
+                // 解析 cron 表达式（支持旧版 HH:mm 自动转换）
+                var cronText = task.GetCronExpression();
+                CronExpression cron;
+                try
+                {
+                    cron = CronExpression.Parse(cronText, CronFormat.Standard);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[Scheduler] 无效 cron 表达式: {Cron} (任务: {Name})", cronText, task.Name);
+                    continue;
+                }
+
+                // 获取上次触发时间后的下一次触发
+                var fromTime = now.AddSeconds(-35); // 加一点容错
+                var nextOccurrence = cron.GetNextOccurrence(fromTime, TimeZoneInfo.Local, inclusive: false);
+
+                if (nextOccurrence is null)
                     continue;
 
-                if (task.LastRunDate == today)
+                // 检查是否在当前 Tick 窗口内
+                if (nextOccurrence.Value > now)
                     continue;
 
-                Log.Information("[Scheduler] 执行定时任务: {Name} ({ToolName} {ToolArgs})",
-                    task.Name, task.ToolName, task.ToolArgs);
+                // 防重复：用分钟精度的时间戳
+                var runKey = nextOccurrence.Value.ToString("yyyy-MM-dd HH:mm");
+                if (task.LastRunTimestamp == runKey)
+                    continue;
+
+                Log.Information("[Scheduler] 执行定时任务: {Name} ({ToolName} {ToolArgs}) at {Time}",
+                    task.Name, task.ToolName, task.ToolArgs, runKey);
 
                 try
                 {
@@ -77,7 +99,7 @@ public class SchedulerService : IDisposable
                     Log.Error(ex, "[Scheduler] 任务执行失败: {Name}", task.Name);
                 }
 
-                _storage.UpdateLastRunDate(task.Name, today);
+                _storage.UpdateLastRunTimestamp(task.Name, runKey);
             }
         }
         catch (Exception ex)

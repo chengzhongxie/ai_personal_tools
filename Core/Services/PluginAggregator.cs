@@ -1,6 +1,8 @@
+using System.IO;
 using Microsoft.Extensions.AI;
 using PersonalAssistant.Core.Interfaces;
 using PersonalAssistant.Core.Plugins;
+using PersonalAssistant.Features.Plugins;
 using PersonalAssistant.Features.Workflow.Models;
 using PersonalAssistant.Features.Workflow.Services;
 using PersonalAssistant.Infrastructure.Common.Services;
@@ -15,6 +17,7 @@ namespace PersonalAssistant.Core.Services;
 /// 内建 WorkflowRecorder 集成（透明录制，插件无需手动调用 RecordStep）。
 /// 实现 IDangerousToolPolicy（维护危险工具集合 + Confirm 回调）。
 /// 双列表架构：_allPlugins（完整列表供管理窗口枚举）vs _activePlugins（仅启用的，供查询使用）。
+/// 支持插件热重载：订阅 PluginFileWatcher 事件，文件变更时自动重载外部插件。
 /// 资源成本：1个单例，持有 2 个 List&lt;IToolPlugin&gt;，ExecuteToolStepAsync 线性扫描 O(n)。
 /// </summary>
 public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
@@ -23,6 +26,12 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
     private List<IToolPlugin> _activePlugins;
     private readonly PluginStateService _pluginState;
     private readonly WorkflowRecorder _recorder;
+    private readonly PluginLoader _pluginLoader;
+    private readonly PluginFileWatcher? _fileWatcher;
+    private readonly object _pluginsLock = new();
+
+    /// <summary>插件变更事件（ChatAgentService 订阅以重建 MAF Session）</summary>
+    public event Action? PluginsChanged;
 
     // 缓存：避免每次 GetAllTools() 都遍历所有插件重建 AIFunction 数组
     private AIFunction[]? _cachedTools;
@@ -58,10 +67,13 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
 
     public PluginAggregator(IEnumerable<IToolPlugin> builtInPlugins,
         PluginLoader pluginLoader, WorkflowRecorder recorder,
-        PluginStateService pluginState)
+        PluginStateService pluginState, PluginFileWatcher fileWatcher)
     {
+        Log.Information("[PluginAggregator] 构造开始");
         _recorder = recorder;
         _pluginState = pluginState;
+        _pluginLoader = pluginLoader;
+        _fileWatcher = fileWatcher;
 
         // 1. 加载外部插件并包装为 ExternalPluginAdapter
         var externalBases = pluginLoader.LoadPlugins();
@@ -95,6 +107,66 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
         var disabledCount = _allPlugins.Count - _activePlugins.Count;
         if (disabledCount > 0)
             Log.Information("[PluginAggregator] {Count} 个插件已禁用", disabledCount);
+
+        // 3. 订阅插件文件变更事件（热重载）
+        _fileWatcher.PluginFileChanged += OnExternalPluginFileChanged;
+        Log.Information("[PluginAggregator] 构造完成");
+    }
+
+    /// <summary>外部插件文件变更时触发热重载</summary>
+    private void OnExternalPluginFileChanged(string filePath)
+    {
+        try
+        {
+            var fileName = Path.GetFileName(filePath);
+
+            // 查找对应的 ExternalPluginAdapter（SourcePlugin.SourceFilePath 匹配）
+            var oldAdapter = _allPlugins
+                .OfType<ExternalPluginAdapter>()
+                .FirstOrDefault(a =>
+                    string.Equals(a.SourcePlugin.SourceFilePath, filePath, StringComparison.OrdinalIgnoreCase));
+
+            // 重新编译加载
+            var newBase = _pluginLoader.ReloadPlugin(filePath);
+
+            lock (_pluginsLock)
+            {
+                if (newBase is not null)
+                {
+                    var newAdapter = new ExternalPluginAdapter(newBase);
+                    if (oldAdapter is not null)
+                    {
+                        var idx = _allPlugins.IndexOf(oldAdapter);
+                        _allPlugins[idx] = newAdapter;
+                    }
+                    else
+                    {
+                        // 新文件，插入到外部插件列表末尾
+                        _allPlugins.Insert(0, newAdapter); // 外部插件优先
+                        Log.Information("[PluginAggregator] 新插件已添加: {File}", fileName);
+                    }
+                }
+                else if (oldAdapter is not null)
+                {
+                    // 编译失败，移除旧插件
+                    _allPlugins.Remove(oldAdapter);
+                    Log.Information("[PluginAggregator] 插件已移除（编译失败）: {File}", fileName);
+                }
+
+                // 刷新活跃列表
+                _activePlugins = _allPlugins
+                    .Where(p => _pluginState.IsEnabled(p.Name))
+                    .ToList();
+                _toolsCacheValid = false;
+            }
+
+            // 通知 ChatAgentService 重建 Session
+            PluginsChanged?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "[PluginAggregator] 热重载处理异常: {File}", filePath);
+        }
     }
 
     /// <summary>所有插件（含禁用的），供管理窗口枚举</summary>

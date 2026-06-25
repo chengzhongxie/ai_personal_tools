@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using PersonalAssistant.Core.Interfaces;
 
 namespace PersonalAssistant.Features.Plugins.SystemTools;
@@ -11,13 +12,15 @@ namespace PersonalAssistant.Features.Plugins.SystemTools;
 /// </summary>
 public class SystemToolsPlugin : IToolPlugin
 {
-    private readonly IDangerousToolPolicy _policy;
+    private readonly IServiceProvider _services;
+    private IDangerousToolPolicy? _policy;
+    private IDangerousToolPolicy Policy => _policy ??= _services.GetRequiredService<IDangerousToolPolicy>();
 
     public string Name => "SystemTools";
 
-    public SystemToolsPlugin(IDangerousToolPolicy policy)
+    public SystemToolsPlugin(IServiceProvider services)
     {
-        _policy = policy;
+        _services = services;
     }
 
     public AIFunction[] GetTools()
@@ -45,9 +48,9 @@ public class SystemToolsPlugin : IToolPlugin
         string? result = toolName switch
         {
             "read_file" => SystemToolMethods.ReadFile(args),
-            "write_file" => SystemToolMethods.WriteFile(args, "", _policy),
+            "write_file" => SystemToolMethods.WriteFile(args, "", Policy),
             "list_files" => SystemToolMethods.ListFiles(string.IsNullOrEmpty(args) ? null : args),
-            "run_shell" => await SystemToolMethods.RunShellAsync(args, _policy),
+            "run_shell" => await SystemToolMethods.RunShellAsync(args, Policy),
             "run_command" => SystemToolMethods.RunCommand(args, null),
             "find_app" => SystemToolMethods.FindApp(args),
             "send_keys" => SystemToolMethods.SendKeys(args),
@@ -69,7 +72,7 @@ public class SystemToolsPlugin : IToolPlugin
     private string WriteFileWrapper(
         [Description("Path where the file should be written")] string path,
         [Description("Text content to write to the file")] string content) =>
-        SystemToolMethods.WriteFile(path, content, _policy);
+        SystemToolMethods.WriteFile(path, content, Policy);
 
     [Description(
         "Execute a PowerShell command and return its captured output.\n" +
@@ -80,7 +83,7 @@ public class SystemToolsPlugin : IToolPlugin
         "Timeout: 15 seconds. Max output: ~100KB.")]
     private Task<string> RunShellWrapper(
         [Description("PowerShell command to execute")] string command) =>
-        SystemToolMethods.RunShellAsync(command, _policy);
+        SystemToolMethods.RunShellAsync(command, Policy);
 
     // Direct delegate wrappers matching the [Description] attributes on SystemToolMethods
     [Description("Read the contents of a file at the given path")]

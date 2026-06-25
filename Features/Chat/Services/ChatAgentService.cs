@@ -1,4 +1,5 @@
 using System.ClientModel;
+using System.Net.Http;
 using System.Runtime.CompilerServices;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -9,6 +10,7 @@ using PersonalAssistant.Core.Services;
 using PersonalAssistant.Features.Workflow.Models;
 using PersonalAssistant.Features.Workflow.Services;
 using PersonalAssistant.Infrastructure.Common.Services;
+using Serilog;
 
 namespace PersonalAssistant.Features.Chat.Services;
 
@@ -25,19 +27,27 @@ public class ChatAgentService
     private readonly PatternDetector _patternDetector;
     private readonly WorkflowRecorder _recorder;
     private readonly PluginSharedState _sharedState;
+    private readonly ConversationSummarizer _summarizer;
 
     private ChatClientAgent? _agent;
     private AgentSession? _session;
+    private bool _isOffline;
+    private bool _networkChecked;
+
+    // 网络探测用的 HttpClient（复用，避免频繁创建）
+    private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(3) };
 
     public ChatAgentService(UserSettingsService settings, IToolPluginHost pluginHost,
         PatternDetector patternDetector, WorkflowRecorder recorder,
-        PluginSharedState sharedState)
+        PluginSharedState sharedState, ConversationSummarizer summarizer)
     {
+        Log.Information("[ChatAgentService] 构造开始");
         _settings = settings;
         _pluginHost = pluginHost;
         _patternDetector = patternDetector;
         _recorder = recorder;
         _sharedState = sharedState;
+        _summarizer = summarizer;
 
         // 设置清空对话回调（供 ChatToolsPlugin.ClearChat 调用）
         _sharedState.OnClearChat += () =>
@@ -45,6 +55,53 @@ public class ChatAgentService
             // 使用 fire-and-forget 避免在事件调用链中阻塞
             _ = ClearHistoryAsync();
         };
+
+        // 订阅插件变更事件（热重载后重建 MAF Session）
+        if (pluginHost is PluginAggregator aggregator)
+        {
+            aggregator.PluginsChanged += () =>
+            {
+                Log.Information("[ChatAgentService] 插件已更新，重建 Agent Session");
+                _agent = null; // 强制 EnsureInitializedAsync 重新创建 Agent + Session
+                _session = null;
+            };
+        }
+        Log.Information("[ChatAgentService] 构造完成");
+    }
+
+    /// <summary>当前是否为离线模式（网络不可达）</summary>
+    public bool IsOffline
+    {
+        get
+        {
+            if (!_networkChecked)
+            {
+                _ = ProbeNetworkAsync(); // fire-and-forget 探测
+                return false; // 首次默认在线，探测完成后更新
+            }
+            return _isOffline;
+        }
+    }
+
+    /// <summary>
+    /// 探测网络连通性（异步，3s 超时）。
+    /// 在后台静默完成，更新 IsOffline 状态。
+    /// </summary>
+    public async Task ProbeNetworkAsync()
+    {
+        try
+        {
+            var endpoint = _settings.GetChatSettings().Endpoint;
+            var response = await SharedHttpClient.SendAsync(
+                new HttpRequestMessage(HttpMethod.Head, endpoint),
+                HttpCompletionOption.ResponseHeadersRead);
+            _isOffline = !response.IsSuccessStatusCode;
+        }
+        catch
+        {
+            _isOffline = true;
+        }
+        _networkChecked = true;
     }
 
     /// <summary>懒初始化 MAF Agent + Session，若 Key 未配置则返回错误</summary>
@@ -99,7 +156,7 @@ public class ChatAgentService
     }
 
     /// <summary>
-    /// 清空对话历史（创建新 Session）并重置模式检测器。
+    /// 清空对话历史（创建新 Session）并重置模式检测器和摘要器。
     /// </summary>
     public async Task ClearHistoryAsync()
     {
@@ -109,6 +166,7 @@ public class ChatAgentService
         _patternDetector.Reset();
         _recorder.CollectRound();
         _sharedState.PendingSuggestion = null;
+        _summarizer.Reset();
 
         // 延迟释放旧 Session（避免阻塞当前操作）
         if (oldSession is IDisposable d)
@@ -119,6 +177,20 @@ public class ChatAgentService
                 d.Dispose();
             });
         }
+    }
+
+    /// <summary>每轮对话后递增摘要计数器</summary>
+    public void IncrementSummarizerRound() => _summarizer.IncrementRound();
+
+    /// <summary>是否需要触发摘要</summary>
+    public bool ShouldSummarize => _summarizer.ShouldSummarize;
+
+    /// <summary>获取摘要提示词片段（用于注入系统提示词）</summary>
+    public string? GetSummaryPromptFragment()
+    {
+        var summary = _summarizer.LatestSummary;
+        if (summary is null) return null;
+        return $"Previous conversation summary (use this for context): {summary}";
     }
 
     /// <summary>

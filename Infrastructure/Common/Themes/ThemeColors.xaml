@@ -1,0 +1,110 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- ═══════════════════════════════════════════════════════════ -->
+    <!-- 语义化主题颜色：深色 + 浅色双方案                          -->
+    <!-- 使用 DynamicResource 引用，运行时主题切换即时生效          -->
+    <!-- ═══════════════════════════════════════════════════════════ -->
+
+    <!-- ── 深色主题 (默认) ── -->
+    <Color x:Key="Dark.BackgroundDeep">#0B0E14</Color>
+    <Color x:Key="Dark.BackgroundPrimary">#131720</Color>
+    <Color x:Key="Dark.BackgroundSecondary">#1A1F2E</Color>
+    <Color x:Key="Dark.BorderPrimary">#1E2430</Color>
+    <Color x:Key="Dark.BorderSecondary">#2A3040</Color>
+    <Color x:Key="Dark.ForegroundPrimary">#E8ECF1</Color>
+    <Color x:Key="Dark.ForegroundSecondary">#D1D5DB</Color>
+    <Color x:Key="Dark.ForegroundTertiary">#9CA3AF</Color>
+    <Color x:Key="Dark.ForegroundMuted">#6B7280</Color>
+    <Color x:Key="Dark.ForegroundSubtle">#4B5563</Color>
+    <Color x:Key="Dark.AccentGradientStart">#3B82F6</Color>
+    <Color x:Key="Dark.AccentGradientEnd">#6366F1</Color>
+    <Color x:Key="Dark.AccentHoverStart">#4F8EF7</Color>
+    <Color x:Key="Dark.AccentHoverEnd">#7B73F5</Color>
+    <Color x:Key="Dark.UserBubbleStart">#3B82F6</Color>
+    <Color x:Key="Dark.UserBubbleEnd">#6366F1</Color>
+    <Color x:Key="Dark.UserTimestamp">#93C5FD</Color>
+    <Color x:Key="Dark.CancelBg">#7F1D1D</Color>
+    <Color x:Key="Dark.CancelHover">#991B1B</Color>
+    <Color x:Key="Dark.CancelFg">#FCA5A5</Color>
+    <Color x:Key="Dark.InputCaret">#3B82F6</Color>
+    <Color x:Key="Dark.InfoBarBg">#1A1F2E</Color>
+    <Color x:Key="Dark.StatusOnline">#22C55E</Color>
+    <Color x:Key="Dark.StatusOffline">#F59E0B</Color>
+    <Color x:Key="Dark.StatusError">#EF4444</Color>
+
+    <!-- ── 浅色主题 ── -->
+    <Color x:Key="Light.BackgroundDeep">#F3F4F6</Color>
+    <Color x:Key="Light.BackgroundPrimary">#FFFFFF</Color>
+    <Color x:Key="Light.BackgroundSecondary">#F9FAFB</Color>
+    <Color x:Key="Light.BorderPrimary">#E5E7EB</Color>
+    <Color x:Key="Light.BorderSecondary">#D1D5DB</Color>
+    <Color x:Key="Light.ForegroundPrimary">#111827</Color>
+    <Color x:Key="Light.ForegroundSecondary">#374151</Color>
+    <Color x:Key="Light.ForegroundTertiary">#6B7280</Color>
+    <Color x:Key="Light.ForegroundMuted">#9CA3AF</Color>
+    <Color x:Key="Light.ForegroundSubtle">#D1D5DB</Color>
+    <Color x:Key="Light.AccentGradientStart">#2563EB</Color>
+    <Color x:Key="Light.AccentGradientEnd">#4F46E5</Color>
+    <Color x:Key="Light.AccentHoverStart">#3B82F6</Color>
+    <Color x:Key="Light.AccentHoverEnd">#6366F1</Color>
+    <Color x:Key="Light.UserBubbleStart">#2563EB</Color>
+    <Color x:Key="Light.UserBubbleEnd">#4F46E5</Color>
+    <Color x:Key="Light.UserTimestamp">#60A5FA</Color>
+    <Color x:Key="Light.CancelBg">#FEE2E2</Color>
+    <Color x:Key="Light.CancelHover">#FECACA</Color>
+    <Color x:Key="Light.CancelFg">#DC2626</Color>
+    <Color x:Key="Light.InputCaret">#2563EB</Color>
+    <Color x:Key="Light.InfoBarBg">#F9FAFB</Color>
+    <Color x:Key="Light.StatusOnline">#16A34A</Color>
+    <Color x:Key="Light.StatusOffline">#D97706</Color>
+    <Color x:Key="Light.StatusError">#DC2626</Color>
+
+    <!-- ═══════════════════════════════════════ -->
+    <!-- 动态引用：根据当前主题自动切换颜色      -->
+    <!-- ═══════════════════════════════════════ -->
+
+    <!-- 使用 ThemeResource 按需加载：初始用 Dark，切换时换 Light -->
+    <!-- 但 DynamicResource 更简单：直接 vs Dark/Light 键 -->
+
+    <!-- 方案：定义不带前缀的别名键，通过合并字典切换 -->
+    <!-- WPF 不支持运行时更换 ResourceDictionary 键，使用 DynamicResource 指向一个 Proxy -->
+    <!-- 最简方式：直接在 App 层用 ApplicationTheme 控制 -->
+
+    <!-- 背景 -->
+    <SolidColorBrush x:Key="Brush.BackgroundDeep" Color="{DynamicResource _BgDeep}" />
+    <SolidColorBrush x:Key="Brush.BackgroundPrimary" Color="{DynamicResource _BgPrimary}" />
+    <SolidColorBrush x:Key="Brush.BackgroundSecondary" Color="{DynamicResource _BgSecondary}" />
+    <SolidColorBrush x:Key="Brush.BorderPrimary" Color="{DynamicResource _BorderPrimary}" />
+    <SolidColorBrush x:Key="Brush.BorderSecondary" Color="{DynamicResource _BorderSecondary}" />
+
+    <!-- 前景文字 -->
+    <SolidColorBrush x:Key="Brush.ForegroundPrimary" Color="{DynamicResource _FgPrimary}" />
+    <SolidColorBrush x:Key="Brush.ForegroundSecondary" Color="{DynamicResource _FgSecondary}" />
+    <SolidColorBrush x:Key="Brush.ForegroundTertiary" Color="{DynamicResource _FgTertiary}" />
+    <SolidColorBrush x:Key="Brush.ForegroundMuted" Color="{DynamicResource _FgMuted}" />
+    <SolidColorBrush x:Key="Brush.ForegroundSubtle" Color="{DynamicResource _FgSubtle}" />
+
+    <!-- 强调色 -->
+    <SolidColorBrush x:Key="Brush.AccentStart" Color="{DynamicResource _AccentStart}" />
+    <SolidColorBrush x:Key="Brush.AccentEnd" Color="{DynamicResource _AccentEnd}" />
+
+    <!-- 用户气泡渐变（动态色值，需要 LinearGradientBrush 整体替换） -->
+    <LinearGradientBrush x:Key="Brush.UserBubble" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="{DynamicResource _UserBubbleStart}" Offset="0" />
+        <GradientStop Color="{DynamicResource _UserBubbleEnd}" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Brush.SendBtn" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="{DynamicResource _AccentStart}" Offset="0" />
+        <GradientStop Color="{DynamicResource _AccentEnd}" Offset="1" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Brush.SendBtnHover" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Color="{DynamicResource _AccentHoverStart}" Offset="0" />
+        <GradientStop Color="{DynamicResource _AccentHoverEnd}" Offset="1" />
+    </LinearGradientBrush>
+
+    <!-- 状态色 -->
+    <SolidColorBrush x:Key="Brush.StatusOnline" Color="{DynamicResource _StatusOnline}" />
+    <SolidColorBrush x:Key="Brush.StatusOffline" Color="{DynamicResource _StatusOffline}" />
+
+</ResourceDictionary>
