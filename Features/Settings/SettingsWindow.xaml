@@ -21,7 +21,8 @@
                    Margin="0,0,0,16" />
 
         <!-- Settings Content -->
-        <StackPanel Grid.Row="1">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <StackPanel>
             <!-- AI Model Section -->
             <TextBlock FontSize="13" FontWeight="SemiBold"
                        Foreground="{DynamicResource Brush.ForegroundTertiary}" Text="AI 模型配置"
@@ -210,7 +211,79 @@
             <TextBlock FontSize="11" Foreground="{DynamicResource Brush.ForegroundMuted}"
                        Margin="0,6,0,0"
                        Text="配置修改后需重启应用生效" />
+
+            <!-- Model Management -->
+            <Border Height="1" Background="{DynamicResource Brush.BorderSecondary}" Margin="0,14,0,14" />
+
+            <TextBlock FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Brush.ForegroundTertiary}" Text="模型管理"
+                       Margin="0,0,0,10" />
+
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="ModelStatusText" Grid.Column="0"
+                           FontSize="12" VerticalAlignment="Center"
+                           Foreground="{DynamicResource Brush.ForegroundMuted}"
+                           TextWrapping="Wrap" />
+                <Button Grid.Column="1" x:Name="OpenModelDirBtn"
+                        Content="打开目录" Width="80" Padding="6,2"
+                        Margin="8,0,0,0" FontSize="11"
+                        Background="{DynamicResource Brush.BorderSecondary}" Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                        BorderThickness="0" Cursor="Hand"
+                        Click="OpenModelDir_Click">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="4" />
+                        </Style>
+                    </Button.Resources>
+                </Button>
+            </Grid>
+
+            <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="UploadModelBtn" Grid.Column="0"
+                        Content="上传模型" Padding="12,6"
+                        FontSize="12" Cursor="Hand"
+                        Background="{DynamicResource Brush.BorderSecondary}" Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                        BorderThickness="0"
+                        Click="UploadModel_Click">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="4" />
+                        </Style>
+                    </Button.Resources>
+                </Button>
+                <Button x:Name="DownloadModelBtn" Grid.Column="1"
+                        Content="下载模型" Padding="12,6"
+                        Margin="8,0,0,0"
+                        FontSize="12" Cursor="Hand"
+                        Background="{DynamicResource Brush.BorderSecondary}" Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                        BorderThickness="0"
+                        Click="DownloadModel_Click">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="4" />
+                        </Style>
+                    </Button.Resources>
+                </Button>
+                <TextBlock x:Name="ModelOpStatus" Grid.Column="2"
+                           FontSize="12" Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="{DynamicResource Brush.ForegroundMuted}"
+                           TextWrapping="Wrap" />
+            </Grid>
+
+            <TextBlock FontSize="10" Foreground="{DynamicResource Brush.ForegroundMuted}"
+                       Text="上传：选择本地 .gguf 文件；下载：从镜像源获取默认模型（约 350 MB）。" />
         </StackPanel>
+        </ScrollViewer>
 
         <!-- Buttons -->
         <StackPanel Grid.Row="2" Orientation="Horizontal"

@@ -7,7 +7,12 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <AssemblyTitle>个人 AI 助手</AssemblyTitle>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+    <AssemblyTitle>智伴</AssemblyTitle>
+    <AssemblyName>智伴</AssemblyName>
     <Description>个人 AI 助手 - 桌面 AI 对话 + 工具调用</Description>
     <Product>个人 AI 助手</Product>
   </PropertyGroup>
@@ -48,8 +53,8 @@
 
   <!-- 本地模型 + 下载配置：打包时自动包含 -->
   <ItemGroup>
-    <Content Include="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" CopyToOutputDirectory="PreserveNewest" Link="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" />
-    <Content Include="Assets\model_sources.json" CopyToOutputDirectory="PreserveNewest" Link="Assets\model_sources.json" />
+    <Content Include="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" Link="Assets\qwen2.5-0.5b-instruct-q4_k_m.gguf" />
+    <Content Include="Assets\model_sources.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Link="Assets\model_sources.json" />
   </ItemGroup>
 
 </Project>

@@ -171,7 +171,7 @@ public sealed class PluginToolDefinition
 - **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。
 - **ChatView**：WPF 聊天界面（深色/浅色主题切换，Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。Markdig.Wpf 解析 Markdown → FlowDocument，AI 回复支持代码块语法高亮、列表、表格、加粗等。支持 Up/Down 箭头导航输入历史。所有颜色使用 DynamicResource 主题系统。
 - **ChatHistoryService**：对话历史持久化到 `%APPDATA%\PersonalAssistant\chat_history.json`（仅 UI 恢复，不回放 AI 会话），跳过 System 角色消息，最多 200 条。加载失败时记录 warning 日志并降级为空列表
-- **LocalModelService**：封装 LLamaSharp 加载 Qwen2.5-0.5B-Instruct GGUF 本地模型。`InferAsync(prompt, maxTokens?, systemPrompt?, ct)` 提供单轮无状态推理。延迟初始化（首次调用才加载），`SemaphoreSlim(1,1)` 保证线程安全，`IDisposable` 释放 `LLamaWeights`/`LLamaContext`。模型获取优先级：%APPDATA% → 打包目录自动部署 → 多镜像自动下载（model_sources.json 配置，带进度报告）。资源成本：首次加载 ~550MB 内存（模型 + KV Cache），空闲时仅内存驻留，无 CPU 消耗。
+- **LocalModelService**：封装 LLamaSharp 加载 Qwen2.5-0.5B-Instruct GGUF 本地模型。`InferAsync(prompt, maxTokens?, systemPrompt?, ct)` 提供单轮无状态推理。延迟初始化（首次调用才加载），`SemaphoreSlim(1,1)` 保证线程安全，`IDisposable` 释放 `LLamaWeights`/`LLamaContext`。模型获取 4 层优先级：%APPDATA% → 打包目录 → exe 旁边目录（单文件发布）→ 多镜像自动下载（model_sources.json 配置，带进度报告）。公开属性：`ModelDirectory`, `ModelFilePath`, `ModelFileExists`, `ModelFileSize`。公开方法：`DownloadModelAsync(progress, ct)` 强制重新下载，`UploadModelAsync(sourcePath, progress)` 复制用户 .gguf 到模型目录。资源成本：首次加载 ~550MB 内存（模型 + KV Cache），空闲时仅内存驻留，无 CPU 消耗。
 - **ModelRoutingService**：3 层漏斗精准模型路由。L1 快速预判（极短/明显需工具）→ L2 本地 Qwen 0.5B 语义意图分类（conversation/question → 本地 / action/creation/system → 远程）→ L3 语义质量评估（不合格自动回退远程）。本地分类阶段 MaxTokens=10，约 1-2s。资源成本：按需消耗，空闲时零开销。
 - **TokenUsageService**：Token 用量统计（~4 chars/token 估算）。记录每轮输入/输出的 token 消耗，按月分桶，异步持久化到 `%APPDATA%\PersonalAssistant\token_usage.json`。自动修剪 12 个月前的旧数据。资源成本：仅记录和写盘时消耗，空闲时零开销。
 - **ConversationSummarizer**：对话摘要器。对话超过 30 轮时，提取最旧 10 轮调用本地模型生成摘要，注入系统提示词作为上下文。`SummarizeAsync(messages)` 返回摘要文本，`LatestSummary` 暴露最新摘要供系统提示词注入。资源成本：仅触发时消耗（~2-3s 本地推理），空闲时零开销。
@@ -293,7 +293,8 @@ public sealed class PluginToolDefinition
 - 人偶隐藏时浮动动画自动暂停，显示时恢复（省 CPU）
 
 ### Settings
-- **SettingsWindow**：AI 模型配置 + 开机自启动 + 主题切换 + 快捷键自定义 + 知识库管理，深色/浅色主题适配
+- **SettingsWindow**：AI 模型配置 + 开机自启动 + 主题切换 + 快捷键自定义 + 知识库管理 + 模型管理，深色/浅色主题适配
+- **模型管理**：设置窗口新增模型管理区域，显示模型状态（就绪/未安装 + 文件大小），支持打开模型目录、上传本地 .gguf 文件、从镜像源下载默认模型。下载/上传带进度显示，窗口关闭时自动取消进行中的操作。
 - 配置保存在 `%APPDATA%\PersonalAssistant\settings.json`
 - 从托盘右键菜单"设置"打开
 - **配置项**：API Key（显示/隐藏切换）、提供商预设（DeepSeek/Zhipu GLM/自定义）、模型名称、API 端点、连接测试、开机自启动、深色/浅色主题、快捷键组合（HotkeyCaptureBox 控件）、知识库目录选择 + 一键索引（带进度）
@@ -375,6 +376,7 @@ public sealed class PluginToolDefinition
 - 定时任务数据：保存在 `%APPDATA%\PersonalAssistant\schedules\` 目录
 - 本地模型文件：放在 `%APPDATA%\PersonalAssistant\models\` 目录（*.gguf，不入库）
 - 模型下载配置：`Assets/model_sources.json`（入库），含多镜像 URL 和回退顺序，可独立更新无需改代码
+- 单文件发布：`PublishSingleFile=true`，GGUF 模型 `ExcludeFromSingleFile=true` 独立于 exe。发布后 exe 旁边 `Assets/` 目录放置模型文件即可分发
 - 插件启用状态：保存在 `%APPDATA%\PersonalAssistant\plugin_state.json`（不入库）
 - Token 用量数据：保存在 `%APPDATA%\PersonalAssistant\token_usage.json`（不入库）
 - 知识库索引：保存在 `%APPDATA%\PersonalAssistant\knowledge_base\index.json`（不入库）
@@ -419,7 +421,7 @@ PersonalAssistant/
 │   │   ├── Models/                      # ChatMessage, ChatSettings, NotificationRecord, TokenUsageStats, 枚举
 │   │   ├── Services/
 │   │   │   ├── ChatAgentService.cs      # MAF 封装 (~160行) + ChatSystemPrompt.cs
-│   │   │   ├── LocalModelService.cs      # 本地 LLM 推理
+│   │   │   ├── LocalModelService.cs      # 本地 LLM 推理（4层模型路径 + 上传/下载）
 │   │   │   ├── ModelRoutingService.cs    # 自动模型路由（本地/远程）
 │   │   │   ├── TokenUsageService.cs      # Token 用量统计 + 持久化
 │   │   │   ├── ConversationSummarizer.cs # 对话摘要生成（本地 LLM）
@@ -469,7 +471,7 @@ PersonalAssistant/
 │   │   ├── MascotWindow.xaml            # XAML 形状绘制的机器人（无 DropShadowEffect）
 │   │   └── MascotWindow.xaml.cs         # 眼球追踪、悬停、点击弹跳、拖拽、右键 WidgetPanel
 │   └── Settings/
-│       ├── SettingsWindow.xaml          # AI 配置 + 主题 + 快捷键 + 知识库 + 开机自启动
+│       ├── SettingsWindow.xaml          # AI 配置 + 主题 + 快捷键 + 知识库 + 模型管理 + 开机自启动
 │       └── SettingsWindow.xaml.cs
 ├── Infrastructure/Common/
 │   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, 通用转换器

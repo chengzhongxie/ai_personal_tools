@@ -6,6 +6,7 @@ using System.Windows.Media;
 using Microsoft.Win32;
 using OpenAI;
 using OpenAI.Chat;
+using PersonalAssistant.Features.Chat.Services;
 using PersonalAssistant.Features.KnowledgeBase.Services;
 using PersonalAssistant.Infrastructure.Common.Helpers;
 using PersonalAssistant.Infrastructure.Common.Services;
@@ -13,12 +14,14 @@ using PersonalAssistant.Infrastructure.Common.Services;
 namespace PersonalAssistant.Features.Settings;
 
 /// <summary>
-/// 设置窗口：AI 模型配置 + 开机自启动，配置保存在用户目录
+/// 设置窗口：AI 模型配置 + 开机自启动 + 模型管理，配置保存在用户目录
 /// </summary>
 public partial class SettingsWindow : Window
 {
     private readonly UserSettingsService _settingsService;
     private readonly KnowledgeBaseService _kbService;
+    private readonly LocalModelService _localModelService;
+    private CancellationTokenSource? _modelOpCts;
     private bool _apiKeyRevealed;
     private bool _isLoadingPreset;
 
@@ -32,14 +35,26 @@ public partial class SettingsWindow : Window
         new("自定义", "", "")
     ];
 
-    public SettingsWindow(UserSettingsService settingsService, KnowledgeBaseService kbService)
+    public SettingsWindow(UserSettingsService settingsService,
+        KnowledgeBaseService kbService, LocalModelService localModelService)
     {
         _settingsService = settingsService;
         _kbService = kbService;
+        _localModelService = localModelService;
         InitializeComponent();
         InitializePresets();
         LoadSettings();
         LoadKbStatus();
+        LoadModelStatus();
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        // 窗口关闭时取消进行中的模型操作
+        _modelOpCts?.Cancel();
+        _modelOpCts?.Dispose();
+        _modelOpCts = null;
+        base.OnClosed(e);
     }
 
     private void LoadKbStatus()
@@ -275,6 +290,190 @@ public partial class SettingsWindow : Window
     {
         DialogResult = false;
         Close();
+    }
+
+    // ──── 模型管理 ────
+
+    private static readonly SolidColorBrush GreenBrush =
+        new(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E));
+    private static readonly SolidColorBrush RedBrush =
+        new(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+    private static readonly SolidColorBrush OrangeBrush =
+        new(System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B));
+    private static readonly SolidColorBrush GrayBrush =
+        new(System.Windows.Media.Color.FromRgb(0x6B, 0x72, 0x80));
+
+    private void LoadModelStatus()
+    {
+        if (_localModelService.ModelFileExists)
+        {
+            var sizeMb = _localModelService.ModelFileSize / (1024 * 1024);
+            ModelStatusText.Text = $"模型已就绪 ({sizeMb} MB)";
+            ModelStatusText.Foreground = GreenBrush;
+        }
+        else
+        {
+            ModelStatusText.Text = "模型未安装";
+            ModelStatusText.Foreground = OrangeBrush;
+        }
+    }
+
+    private void OpenModelDir_Click(object sender, RoutedEventArgs e)
+    {
+        var dir = _localModelService.ModelDirectory;
+        try
+        {
+            System.IO.Directory.CreateDirectory(dir);
+            System.Diagnostics.Process.Start("explorer.exe", dir);
+        }
+        catch (Exception ex)
+        {
+            ModelOpStatus.Text = $"打开目录失败: {ex.Message}";
+            ModelOpStatus.Foreground = RedBrush;
+        }
+    }
+
+    private async void UploadModel_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Title = "选择 GGUF 模型文件",
+            Filter = "GGUF 模型文件|*.gguf|所有文件|*.*",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() != true)
+            return;
+
+        var sourcePath = dialog.FileName;
+
+        // 格式校验
+        if (!sourcePath.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+        {
+            ModelOpStatus.Text = "仅支持 .gguf 格式的模型文件";
+            ModelOpStatus.Foreground = OrangeBrush;
+            return;
+        }
+
+        _modelOpCts?.Cancel();
+        _modelOpCts?.Dispose();
+        _modelOpCts = new CancellationTokenSource();
+        var ct = _modelOpCts.Token;
+
+        SetModelOpInProgress(true);
+
+        try
+        {
+            var error = await _localModelService.UploadModelAsync(sourcePath,
+                progress: new Progress<string>(msg => Dispatcher.Invoke(() =>
+                {
+                    ModelOpStatus.Text = msg;
+                    ModelOpStatus.Foreground = GrayBrush;
+                })));
+
+            if (error is null)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    ModelOpStatus.Text = "上传完成";
+                    ModelOpStatus.Foreground = GreenBrush;
+                    LoadModelStatus();
+                });
+            }
+            else
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    ModelOpStatus.Text = error;
+                    ModelOpStatus.Foreground = RedBrush;
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ModelOpStatus.Text = "操作已取消";
+                ModelOpStatus.Foreground = OrangeBrush;
+            });
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ModelOpStatus.Text = $"上传失败: {ex.Message}";
+                ModelOpStatus.Foreground = RedBrush;
+            });
+        }
+        finally
+        {
+            Dispatcher.Invoke(() => SetModelOpInProgress(false));
+        }
+    }
+
+    private async void DownloadModel_Click(object sender, RoutedEventArgs e)
+    {
+        _modelOpCts?.Cancel();
+        _modelOpCts?.Dispose();
+        _modelOpCts = new CancellationTokenSource();
+        var ct = _modelOpCts.Token;
+
+        SetModelOpInProgress(true);
+
+        try
+        {
+            var error = await _localModelService.DownloadModelAsync(
+                progress: new Progress<string>(msg => Dispatcher.Invoke(() =>
+                {
+                    ModelOpStatus.Text = msg;
+                    ModelOpStatus.Foreground = GrayBrush;
+                })),
+                ct: ct);
+
+            if (error is null)
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    ModelOpStatus.Text = "下载完成";
+                    ModelOpStatus.Foreground = GreenBrush;
+                    LoadModelStatus();
+                });
+            }
+            else
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    ModelOpStatus.Text = error;
+                    ModelOpStatus.Foreground = error.Contains("取消") ? OrangeBrush : RedBrush;
+                });
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ModelOpStatus.Text = "操作已取消";
+                ModelOpStatus.Foreground = OrangeBrush;
+            });
+        }
+        catch (Exception ex)
+        {
+            Dispatcher.Invoke(() =>
+            {
+                ModelOpStatus.Text = $"下载失败: {ex.Message}";
+                ModelOpStatus.Foreground = RedBrush;
+            });
+        }
+        finally
+        {
+            Dispatcher.Invoke(() => SetModelOpInProgress(false));
+        }
+    }
+
+    private void SetModelOpInProgress(bool inProgress)
+    {
+        UploadModelBtn.IsEnabled = !inProgress;
+        DownloadModelBtn.IsEnabled = !inProgress;
     }
 
     private async void TestConnection_Click(object sender, RoutedEventArgs e)
