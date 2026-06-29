@@ -138,7 +138,7 @@ public sealed class LocalModelService : IDisposable
     /// <param name="progress">进度报告</param>
     /// <returns>null 表示成功，否则返回错误信息</returns>
     public async Task<string?> UploadModelAsync(string sourcePath,
-        IProgress<string>? progress = null)
+        IProgress<string>? progress = null, CancellationToken ct = default)
     {
         if (!File.Exists(sourcePath))
             return $"文件不存在: {sourcePath}";
@@ -165,9 +165,9 @@ public sealed class LocalModelService : IDisposable
             var lastReport = 0;
             int read;
 
-            while ((read = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length))) > 0)
+            while ((read = await sourceStream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct)) > 0)
             {
-                await destStream.WriteAsync(buffer.AsMemory(0, read));
+                await destStream.WriteAsync(buffer.AsMemory(0, read), ct);
                 copied += read;
 
                 var pct = (int)(copied * 100 / totalBytes);

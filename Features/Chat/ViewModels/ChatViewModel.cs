@@ -1,8 +1,10 @@
 using System.Collections.ObjectModel;
+using System.Net.Http;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PersonalAssistant.Core.Interfaces;
+using PersonalAssistant.Core.Services;
 using PersonalAssistant.Features.Chat.Models;
 using PersonalAssistant.Features.Chat.Models.Enums;
 using PersonalAssistant.Features.Chat.Services;
@@ -18,12 +20,14 @@ namespace PersonalAssistant.Features.Chat.ViewModels;
 public partial class ChatViewModel : ObservableObject
 {
     private const int MaxDisplayMessages = 200;
+    private const int MaxInputLength = 50000; // 最大输入长度限制（~12K tokens），防止超大粘贴导致 UI 冻结
 
     private readonly ChatAgentService _chatAgent;
     private readonly IChatHistoryService _historyService;
     private readonly ModelRoutingService _routing;
     private readonly TokenUsageService _tokenUsage;
     private readonly ConversationSummarizer _summarizer;
+    private readonly PluginSharedState _sharedState;
 
     // 输入历史（环形缓冲区）
     private const int MaxInputHistory = 50;
@@ -67,7 +71,8 @@ public partial class ChatViewModel : ObservableObject
 
     public ChatViewModel(ChatAgentService chatAgent, IChatHistoryService historyService,
         IDangerousToolPolicy dangerPolicy, ModelRoutingService routing,
-        TokenUsageService tokenUsage, ConversationSummarizer summarizer)
+        TokenUsageService tokenUsage, ConversationSummarizer summarizer,
+        PluginSharedState sharedState)
     {
         Log.Information("[ChatViewModel] 构造开始");
         _chatAgent = chatAgent;
@@ -75,6 +80,7 @@ public partial class ChatViewModel : ObservableObject
         _routing = routing;
         _tokenUsage = tokenUsage;
         _summarizer = summarizer;
+        _sharedState = sharedState;
 
         // 异步网络探测
         _ = UpdateOfflineStatusAsync();
@@ -105,6 +111,31 @@ public partial class ChatViewModel : ObservableObject
             foreach (var msg in saved)
                 Messages.Add(msg);
         }
+
+        // 检查是否有未发送的草稿（崩溃恢复）
+        var draftPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PersonalAssistant", "draft.txt");
+        try
+        {
+            if (System.IO.File.Exists(draftPath))
+            {
+                var draft = System.IO.File.ReadAllText(draftPath);
+                if (!string.IsNullOrWhiteSpace(draft))
+                {
+                    InputText = draft;
+                    Messages.Add(new ChatMessage
+                    {
+                        Role = MessageRole.System,
+                        Content = "[系统] 检测到上次未发送的消息，已恢复到输入框",
+                        Timestamp = DateTime.Now
+                    });
+                }
+                System.IO.File.Delete(draftPath);
+            }
+        }
+        catch (Exception ex) { Log.Warning(ex, "[ChatViewModel] 草稿恢复失败"); }
+
         Log.Information("[ChatViewModel] 构造完成");
     }
 
@@ -126,6 +157,18 @@ public partial class ChatViewModel : ObservableObject
         var text = InputText?.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
+        // 输入长度限制：超长截断并提示
+        if (text.Length > MaxInputLength)
+        {
+            text = text[..MaxInputLength];
+            Messages.Add(new ChatMessage
+            {
+                Role = MessageRole.System,
+                Content = $"[系统] 输入过长，已自动截断至 {MaxInputLength} 字符",
+                Timestamp = DateTime.Now
+            });
+        }
+
         // 记录输入历史
         if (_inputHistory.Count == 0 || _inputHistory[^1] != text)
         {
@@ -134,6 +177,12 @@ public partial class ChatViewModel : ObservableObject
             _inputHistory.Add(text);
         }
         _historyIndex = _inputHistory.Count;
+
+        // 崩溃恢复：先写入草稿文件，成功后再删除
+        var draftFilePath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PersonalAssistant", "draft.txt");
+        try { System.IO.File.WriteAllText(draftFilePath, text); } catch { }
 
         // 创建取消令牌
         _currentCts?.Cancel();
@@ -146,6 +195,8 @@ public partial class ChatViewModel : ObservableObject
         // /clear — 本地处理，零 token
         if (text.Equals("/clear", StringComparison.OrdinalIgnoreCase))
         {
+            _currentCts.Dispose();
+            _currentCts = null;
             await _chatAgent.ClearHistoryAsync();
             Messages.Clear();
             ShowInfoBar = false;
@@ -164,7 +215,8 @@ public partial class ChatViewModel : ObservableObject
         IsWorking = true;
         ShowInfoBar = false;
 
-        // 刷新离线状态
+        // 每次发送前重新探测网络状态（而非依赖缓存值）
+        await _chatAgent.ProbeNetworkAsync();
         IsOffline = _chatAgent.IsOffline;
 
         var assistantMsg = new ChatMessage
@@ -187,6 +239,8 @@ public partial class ChatViewModel : ObservableObject
                 TokenDisplay = _tokenUsage.GetDisplayText();
                 TrimDisplay();
                 _historyService.Save(Messages);
+                _currentCts.Dispose();
+                _currentCts = null;
                 return;
             }
             catch (Exception ex)
@@ -194,6 +248,8 @@ public partial class ChatViewModel : ObservableObject
                 Log.Warning(ex, "[ChatViewModel] 离线本地推理失败");
                 assistantMsg.Content = "[离线模式] 本地模型暂不可用，请稍后重试。";
                 IsWorking = false;
+                _currentCts.Dispose();
+                _currentCts = null;
                 return;
             }
         }
@@ -216,12 +272,15 @@ public partial class ChatViewModel : ObservableObject
                     TokenDisplay = _tokenUsage.GetDisplayText();
                     TrimDisplay();
                     _historyService.Save(Messages);
+                    _currentCts.Dispose();
+                    _currentCts = null;
                     return;
                 }
             }
         }
 
         // ═══ 需工具 / 本地不合格 → 远程模型 ═══
+        _sharedState.CurrentRoundToolCalls.Clear();
         try
         {
             var fullContent = "";
@@ -231,11 +290,15 @@ public partial class ChatViewModel : ObservableObject
                 assistantMsg.Content = fullContent;
             }
 
-            // 如果回复为空（纯工具调用场景），填充占位
+            // 如果回复为空（纯工具调用场景），简要说明
             if (string.IsNullOrWhiteSpace(fullContent))
             {
                 assistantMsg.Content = "[工具调用完成]";
             }
+
+            // 记录本轮工具调用到消息上（供 UI 展示）
+            foreach (var (toolName, result) in _sharedState.CurrentRoundToolCalls)
+                assistantMsg.ToolCalls.Add($"{toolName}: {result}");
 
             // 记录远程 API 用量
             _tokenUsage.RecordUsage(text, fullContent, true);
@@ -248,10 +311,11 @@ public partial class ChatViewModel : ObservableObject
         catch (Exception ex)
         {
             Log.Error(ex, "SendAsync 失败");
-            assistantMsg.Content = $"未知错误: {ex.Message}";
+            var friendlyMsg = MapExceptionToMessage(ex);
+            assistantMsg.Content = friendlyMsg;
             assistantMsg.IsError = true;
 
-            InfoBarMessage = ex.Message;
+            InfoBarMessage = friendlyMsg;
             InfoBarSeverity = InfoBarSeverity.Error;
             ShowInfoBar = true;
         }
@@ -265,6 +329,14 @@ public partial class ChatViewModel : ObservableObject
 
             // 持久化到磁盘
             _historyService.Save(Messages);
+
+            // 成功完成：删除草稿文件
+            try
+            {
+                if (System.IO.File.Exists(draftFilePath))
+                    System.IO.File.Delete(draftFilePath);
+            }
+            catch (Exception ex) { Log.Debug(ex, "[ChatViewModel] 草稿清理失败"); }
 
             // 递增摘要计数器并检查是否需要触发摘要
             _chatAgent.IncrementSummarizerRound();
@@ -293,15 +365,19 @@ public partial class ChatViewModel : ObservableObject
         {
             try
             {
+                // 如果新一轮对话已开始，跳过本次摘要（避免与 SendAsync 竞态修改 Messages）
+                if (IsWorking)
+                    return;
+
                 var summary = await _summarizer.SummarizeAsync(Messages);
-                if (summary is not null)
+                // 摘要生成期间可能已开始新一轮对话，再次检查
+                if (summary is not null && !IsWorking)
                 {
                     // 从显示列表中移除摘要过的旧消息（保留系统消息和最近 10 轮）
                     var keepCount = 20; // 10 rounds * 2 (user+assistant)
                     var toRemove = Messages
                         .Where(m => m.Role is MessageRole.User or MessageRole.Assistant)
-                        .TakeLast(Messages.Count - keepCount)
-                        .TakeWhile(_ => true)
+                        .SkipLast(keepCount)
                         .ToList();
 
                     foreach (var msg in toRemove)
@@ -343,10 +419,8 @@ public partial class ChatViewModel : ObservableObject
     [RelayCommand]
     private void Cancel()
     {
-        // 捕获当前引用避免与 SendAsync finally 竞争
-        var cts = Interlocked.Exchange(ref _currentCts, null);
-        cts?.Cancel();
-        cts?.Dispose();
+        // 仅发送取消信号，不 Dispose（由 SendAsync finally 统一释放，避免 ObjectDisposedException）
+        _currentCts?.Cancel();
     }
 
     /// <summary>
@@ -376,6 +450,30 @@ public partial class ChatViewModel : ObservableObject
         }
 
         return _inputHistory[_historyIndex];
+    }
+
+    /// <summary>将异常映射为用户友好的中文提示</summary>
+    private static string MapExceptionToMessage(Exception ex)
+    {
+        var msg = ex.Message;
+        return ex switch
+        {
+            HttpRequestException => "网络连接失败，请检查网络后重试",
+            TimeoutException => "请求超时，服务器响应过慢，请稍后重试",
+            TaskCanceledException => "请求超时，请稍后重试",
+            OperationCanceledException => "操作已取消",
+            _ when msg.Contains("401") || msg.Contains("Unauthorized") || msg.Contains("unauthorized")
+                => "API 密钥无效，请在设置中检查 API Key 是否正确",
+            _ when msg.Contains("429") || msg.Contains("rate")
+                => "请求过于频繁，请稍等片刻再试",
+            _ when msg.Contains("503") || msg.Contains("502")
+                => "AI 服务暂时不可用，请稍后重试",
+            _ when msg.Contains("402") || msg.Contains("quota") || msg.Contains("insufficient")
+                => "API 额度不足，请检查账户余额",
+            _ when msg.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+                => "请求超时，请稍后重试",
+            _ => $"出错了: {msg}"
+        };
     }
 
     private void TrimDisplay()

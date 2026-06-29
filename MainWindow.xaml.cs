@@ -33,11 +33,29 @@ public partial class MainWindow : FluentWindow
     [DllImport("user32.dll")]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
-    [DllImport("user32.dll")]
-    private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct INPUT
+    {
+        public uint type;
+        public KEYBDINPUT ki;
+    }
 
-    private const byte VK_CONTROL = 0x11;
-    private const byte VK_C = 0x43;
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KEYBDINPUT
+    {
+        public ushort wVk;
+        public ushort wScan;
+        public uint dwFlags;
+        public uint time;
+        public IntPtr dwExtraInfo;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint SendInput(uint cInputs, INPUT[] pInputs, int cbSize);
+
+    private const int INPUT_KEYBOARD = 1;
+    private const ushort VK_CONTROL = 0x11;
+    private const ushort VK_C = 0x43;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
     /// <summary>DI 构造函数，注入 TrayService、MascotWindow、ClipboardMonitor 和 UserSettingsService</summary>
@@ -129,36 +147,40 @@ public partial class MainWindow : FluentWindow
                 catch (System.Runtime.InteropServices.COMException) { /* 剪贴板被其他进程占用 */ }
             });
 
-            // 2. 模拟 Ctrl+C
-            keybd_event(VK_CONTROL, 0, 0, UIntPtr.Zero);
-            keybd_event(VK_C, 0, 0, UIntPtr.Zero);
-            keybd_event(VK_C, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
-            keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            // 2. 使用 SendInput 原子发送 Ctrl+C（比 keybd_event 更可靠）
+            var inputs = new INPUT[]
+            {
+                new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_CONTROL } },
+                new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_C } },
+                new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_C, dwFlags = KEYEVENTF_KEYUP } },
+                new() { type = INPUT_KEYBOARD, ki = new KEYBDINPUT { wVk = VK_CONTROL, dwFlags = KEYEVENTF_KEYUP } },
+            };
+            SendInput((uint)inputs.Length, inputs, Marshal.SizeOf<INPUT>());
 
-            // 3. 等待剪贴板更新
-            await Task.Delay(80);
-
-            // 4. 读取剪贴板
+            // 3. 轮询剪贴板更新（最多 150ms），比固定延迟更可靠
             string? selectedText = null;
-            await Application.Current.Dispatcher.InvokeAsync(() =>
+            for (var i = 0; i < 3; i++)
             {
-                try
-                {
-                    if (System.Windows.Clipboard.ContainsText())
-                        selectedText = System.Windows.Clipboard.GetText();
-                }
-                catch (System.Runtime.InteropServices.COMException) { /* 剪贴板被其他进程占用 */ }
-            });
-
-            // 5. 恢复原始剪贴板
-            if (originalClipboard is not null)
-            {
+                await Task.Delay(50);
                 await Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    try { System.Windows.Clipboard.SetText(originalClipboard); }
-                    catch (System.Runtime.InteropServices.COMException) { }
+                    try
+                    {
+                        if (System.Windows.Clipboard.ContainsText())
+                            selectedText = System.Windows.Clipboard.GetText();
+                    }
+                    catch (COMException) { }
                 });
+                if (selectedText is not null && selectedText != originalClipboard)
+                    break;
             }
+
+            // 5. 恢复原始剪贴板内容（为空则清除，避免泄露选中文本到剪贴板）
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                try { System.Windows.Clipboard.SetText(originalClipboard ?? ""); }
+                catch (System.Runtime.InteropServices.COMException) { }
+            });
 
             // 6. 如果没有选中文本，静默返回
             if (string.IsNullOrWhiteSpace(selectedText))

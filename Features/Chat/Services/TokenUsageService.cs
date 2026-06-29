@@ -23,6 +23,7 @@ public class TokenUsageService
     };
 
     private readonly object _lock = new();
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
     private TokenUsageStats _stats;
 
     public TokenUsageService()
@@ -79,11 +80,16 @@ public class TokenUsageService
             _stats.PruneOldBuckets();
         }
 
-        // 异步持久化（不阻塞 UI）
-        ThreadPool.QueueUserWorkItem(_ =>
+        // 异步持久化（信号量序列化，防止并发写损坏文件）
+        _ = Task.Run(async () =>
         {
-            try { Save(_stats); }
+            await _saveLock.WaitAsync();
+            try
+            {
+                Save(_stats);
+            }
             catch (Exception ex) { Log.Warning(ex, "[TokenUsage] 持久化失败"); }
+            finally { _saveLock.Release(); }
         });
     }
 
@@ -121,6 +127,8 @@ public class TokenUsageService
             Directory.CreateDirectory(dir);
 
         var json = JsonSerializer.Serialize(stats, JsonOptions);
-        File.WriteAllText(UsagePath, json);
+        var tmpPath = UsagePath + ".tmp";
+        File.WriteAllText(tmpPath, json);
+        File.Move(tmpPath, UsagePath, overwrite: true);
     }
 }

@@ -50,7 +50,9 @@ public class ChatHistoryService : IChatHistoryService
             Directory.CreateDirectory(dir);
 
         var json = JsonSerializer.Serialize(toSave, JsonOptions);
-        File.WriteAllText(HistoryPath, json);
+        var tmpPath = HistoryPath + ".tmp";
+        File.WriteAllText(tmpPath, json);
+        File.Move(tmpPath, HistoryPath, overwrite: true);
     }
 
     /// <summary>

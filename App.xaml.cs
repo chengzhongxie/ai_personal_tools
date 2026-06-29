@@ -230,8 +230,7 @@ public partial class App : Application
     /// </summary>
     protected override async void OnExit(ExitEventArgs e)
     {
-        Services.GetRequiredService<TrayService>().Dispose();
-        Services.GetRequiredService<Features.Clipboard.Services.ClipboardMonitor>().Dispose();
+        // 由 Host 统一释放所有 IDisposable 单例，无需手动调用
         await _host.StopAsync(TimeSpan.FromSeconds(5));
         _host.Dispose();
         base.OnExit(e);

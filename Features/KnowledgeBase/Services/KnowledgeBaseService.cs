@@ -191,7 +191,9 @@ public class KnowledgeBaseService
         if (!Directory.Exists(IndexDir))
             Directory.CreateDirectory(IndexDir);
         var json = JsonSerializer.Serialize(index, JsonOptions);
-        File.WriteAllText(IndexPath, json);
+        var tmpPath = IndexPath + ".tmp";
+        File.WriteAllText(tmpPath, json);
+        File.Move(tmpPath, IndexPath, overwrite: true);
     }
 
     private void BuildIdfCache(KnowledgeBaseIndex index)

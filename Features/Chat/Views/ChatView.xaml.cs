@@ -1,6 +1,10 @@
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Microsoft.Extensions.DependencyInjection;
+using PersonalAssistant.Features.Chat.Models;
 using PersonalAssistant.Features.Chat.ViewModels;
 using Serilog;
 
@@ -28,7 +32,52 @@ public partial class ChatView : UserControl
         ViewModel = viewModel;
         DataContext = this;
         InitializeComponent();
+
+        // 自动滚动：新消息添加时滚到底部
+        ViewModel.Messages.CollectionChanged += OnMessagesChanged;
+
         Log.Information("[ChatView] DI构造完成");
+    }
+
+    /// <summary>消息列表变化时自动滚到底部，并在消息移除时解绑事件防止内存泄漏</summary>
+    private void OnMessagesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.Action == NotifyCollectionChangedAction.Add && e.NewItems is not null)
+        {
+            // 对新添加的 Assistant 消息订阅 Content 变化（流式输出时持续滚动）
+            foreach (var item in e.NewItems)
+            {
+                if (item is ChatMessage msg && msg.Role == Models.Enums.MessageRole.Assistant)
+                    msg.PropertyChanged += OnAssistantContentChanged;
+            }
+        }
+        // 消息移除时解绑 PropertyChanged 事件，防止内存泄漏
+        if (e.Action is NotifyCollectionChangedAction.Remove or NotifyCollectionChangedAction.Replace
+            or NotifyCollectionChangedAction.Reset
+            && e.OldItems is not null)
+        {
+            foreach (var item in e.OldItems)
+            {
+                if (item is ChatMessage msg)
+                    msg.PropertyChanged -= OnAssistantContentChanged;
+            }
+        }
+        ScrollToBottom();
+    }
+
+    /// <summary>AI 回复流式更新时保持滚动到底部</summary>
+    private void OnAssistantContentChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ChatMessage.Content))
+            ScrollToBottom();
+    }
+
+    private void ScrollToBottom()
+    {
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            MessageScroll.ScrollToEnd();
+        }), System.Windows.Threading.DispatcherPriority.Loaded);
     }
 
     /// <summary>聚焦输入框并将光标移至末尾</summary>

@@ -29,7 +29,9 @@ public class WorkflowStorageService
 
         var path = GetPath(workflow.Name);
         var json = JsonSerializer.Serialize(workflow, JsonOptions);
-        File.WriteAllText(path, json);
+        var tmpPath = path + ".tmp";
+        File.WriteAllText(tmpPath, json);
+        File.Move(tmpPath, path, overwrite: true);
     }
 
     /// <summary>加载单个工作流</summary>

@@ -19,6 +19,7 @@ public class SchedulerService : IDisposable
     private readonly SemaphoreSlim _semaphore = new(1, 1);
     private List<Models.ScheduledTask>? _cachedTasks;
     private DateTime _lastCacheRefresh = DateTime.MinValue;
+    private DateTimeOffset _lastTickTimeUtc = DateTimeOffset.UtcNow;
     private static readonly TimeSpan CacheRefreshInterval = TimeSpan.FromMinutes(5);
     private bool _disposed;
 
@@ -46,7 +47,15 @@ public class SchedulerService : IDisposable
 
         try
         {
+            var nowUtc = DateTimeOffset.UtcNow;
             var now = DateTime.Now;
+
+            // 检测系统休眠唤醒（Tick 间隔超过 2 分钟 → 回溯执行所有错过的任务）
+            var tickGap = nowUtc - _lastTickTimeUtc;
+            var fromTime = tickGap > TimeSpan.FromMinutes(2)
+                ? _lastTickTimeUtc.LocalDateTime
+                : now.AddSeconds(-35);
+            _lastTickTimeUtc = nowUtc;
 
             // 内存缓存：5 分钟内不重复读取磁盘
             if (_cachedTasks is null || now - _lastCacheRefresh > CacheRefreshInterval)
@@ -70,36 +79,40 @@ public class SchedulerService : IDisposable
                     continue;
                 }
 
-                // 获取上次触发时间后的下一次触发
-                var fromTime = now.AddSeconds(-35); // 加一点容错
-                var nextOccurrence = cron.GetNextOccurrence(fromTime, TimeZoneInfo.Local, inclusive: false);
-
-                if (nextOccurrence is null)
-                    continue;
-
-                // 检查是否在当前 Tick 窗口内
-                if (nextOccurrence.Value > now)
-                    continue;
-
-                // 防重复：用分钟精度的时间戳
-                var runKey = nextOccurrence.Value.ToString("yyyy-MM-dd HH:mm");
-                if (task.LastRunTimestamp == runKey)
-                    continue;
-
-                Log.Information("[Scheduler] 执行定时任务: {Name} ({ToolName} {ToolArgs}) at {Time}",
-                    task.Name, task.ToolName, task.ToolArgs, runKey);
-
-                try
+                // 收集 fromTime 到 now 之间所有触发点（休眠恢复时可能多次触发）
+                var occurrences = new List<DateTime>();
+                var cursor = fromTime;
+                while (true)
                 {
-                    var result = await _pluginHost.ExecuteToolStepAsync(task.ToolName, task.ToolArgs);
-                    Log.Information("[Scheduler] 任务完成: {Name} → {Result}", task.Name, result);
+                    var next = cron.GetNextOccurrence(cursor, TimeZoneInfo.Local, inclusive: false);
+                    if (next is null || next.Value > now)
+                        break;
+                    occurrences.Add(next.Value);
+                    cursor = next.Value;
                 }
-                catch (Exception ex)
+                foreach (var nextOccurrence in occurrences)
                 {
-                    Log.Error(ex, "[Scheduler] 任务执行失败: {Name}", task.Name);
-                }
+                    // 防重复：用分钟精度的时间戳
+                    var runKey = nextOccurrence.ToString("yyyy-MM-dd HH:mm");
+                    if (task.LastRunTimestamp == runKey)
+                        continue;
 
-                _storage.UpdateLastRunTimestamp(task.Name, runKey);
+                    Log.Information("[Scheduler] 执行定时任务: {Name} ({ToolName} {ToolArgs}) at {Time}",
+                        task.Name, task.ToolName, task.ToolArgs, runKey);
+
+                    try
+                    {
+                        var result = await _pluginHost.ExecuteToolStepAsync(task.ToolName, task.ToolArgs);
+                        Log.Information("[Scheduler] 任务完成: {Name} → {Result}", task.Name, result);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "[Scheduler] 任务执行失败: {Name}", task.Name);
+                    }
+
+                    _storage.UpdateLastRunTimestamp(task.Name, runKey);
+                    task.LastRunTimestamp = runKey;
+                }
             }
         }
         catch (Exception ex)

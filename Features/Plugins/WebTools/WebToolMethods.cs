@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using System.Web;
 using HtmlAgilityPack;
+using PersonalAssistant.Core.Services;
 
 namespace PersonalAssistant.Features.Plugins.WebTools;
 
@@ -22,17 +23,24 @@ internal static class WebToolMethods
         Timeout = TimeSpan.FromSeconds(10)
     };
 
+    /// <summary>共享状态引用（由 WebToolsPlugin 初始化时设置）</summary>
+    private static PluginSharedState? _sharedState;
+
+    public static void SetSharedState(PluginSharedState sharedState) => _sharedState = sharedState;
+
     [Description("Fetch and return text content from a URL")]
     public static async Task<string> WebFetch(
         [Description("The URL to fetch content from")] string url)
     {
-        try
+        if (_sharedState?.IsOffline == true)
+            return "当前离线，网页抓取不可用";
+
+        return await WithRetry(async () =>
         {
             var response = await _httpClient.GetStringAsync(url);
             if (response.Length > 8000) response = response[..8000] + "\n... (已截断)";
             return response;
-        }
-        catch (Exception ex) { return $"抓取网页出错: {ex.Message}"; }
+        });
     }
 
     [Description(
@@ -42,7 +50,10 @@ internal static class WebToolMethods
     public static async Task<string> WebSearch(
         [Description("Search query")] string query)
     {
-        try
+        if (_sharedState?.IsOffline == true)
+            return "当前离线，网页搜索不可用";
+
+        return await WithRetry(async () =>
         {
             var encoded = HttpUtility.UrlEncode(query);
             var url = $"https://html.duckduckgo.com/html/?q={encoded}";
@@ -66,14 +77,42 @@ internal static class WebToolMethods
             }
 
             return sb.ToString().TrimEnd();
-        }
-        catch (TaskCanceledException)
+        });
+    }
+
+    /// <summary>指数退避重试（最多 2 次，1s/2s 间隔）</summary>
+    private static async Task<string> WithRetry(Func<Task<string>> action)
+    {
+        const int maxRetries = 2;
+        for (var attempt = 1; ; attempt++)
         {
-            return "搜索超时 (10秒)。请稍后再试或缩短查询词。";
-        }
-        catch (Exception ex)
-        {
-            return $"搜索出错: {ex.Message}";
+            try
+            {
+                return await action();
+            }
+            catch (HttpRequestException) when (attempt <= maxRetries)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
+            }
+            catch (TaskCanceledException) when (attempt <= maxRetries)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
+            }
+            catch (TaskCanceledException)
+            {
+                return "搜索超时 (10秒)。请稍后再试或缩短查询词。";
+            }
+            catch (Exception ex) when (attempt <= maxRetries
+                && (ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase)
+                    || ex.Message.Contains("503")
+                    || ex.Message.Contains("502")))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
+            }
+            catch (Exception ex)
+            {
+                return $"{(action.Method.Name.Contains("WebSearch") ? "搜索" : "抓取网页")}出错: {ex.Message}";
+            }
         }
     }
 

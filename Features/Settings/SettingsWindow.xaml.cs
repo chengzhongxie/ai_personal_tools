@@ -272,9 +272,32 @@ public partial class SettingsWindow : Window
 
     private void Save_Click(object sender, RoutedEventArgs e)
     {
+        var endpoint = EndpointTextBox.Text.Trim();
+        var model = ModelTextBox.Text.Trim();
+
+        // 验证必填字段
+        if (string.IsNullOrWhiteSpace(model))
+        {
+            MessageBox.Show("请填写模型名称", "验证失败",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            ModelTextBox.Focus();
+            return;
+        }
+
+        // 验证端点 URL 格式（非空且必须为有效绝对 URI）
+        if (string.IsNullOrWhiteSpace(endpoint) ||
+            !Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            MessageBox.Show("请填写有效的 API 端点地址（以 http:// 或 https:// 开头）", "验证失败",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            EndpointTextBox.Focus();
+            return;
+        }
+
         _settingsService.ApiKey = (_apiKeyRevealed ? ApiKeyTextBox.Text : ApiKeyPasswordBox.Password).Trim();
-        _settingsService.Model = ModelTextBox.Text.Trim();
-        _settingsService.Endpoint = EndpointTextBox.Text.Trim();
+        _settingsService.Model = model;
+        _settingsService.Endpoint = endpoint;
         _settingsService.IsAutoStartEnabled = AutoStartCheckBox.IsChecked == true;
         _settingsService.HotkeyModifiers = Win32Modifiers(MainHotkeyBox.CapturedModifiers);
         _settingsService.HotkeyKey = VkFromKey(MainHotkeyBox.CapturedKey);
@@ -295,13 +318,19 @@ public partial class SettingsWindow : Window
     // ──── 模型管理 ────
 
     private static readonly SolidColorBrush GreenBrush =
-        new(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E));
+        FreezeBrush(new(System.Windows.Media.Color.FromRgb(0x22, 0xC5, 0x5E)));
     private static readonly SolidColorBrush RedBrush =
-        new(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44));
+        FreezeBrush(new(System.Windows.Media.Color.FromRgb(0xEF, 0x44, 0x44)));
     private static readonly SolidColorBrush OrangeBrush =
-        new(System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B));
+        FreezeBrush(new(System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B)));
     private static readonly SolidColorBrush GrayBrush =
-        new(System.Windows.Media.Color.FromRgb(0x6B, 0x72, 0x80));
+        FreezeBrush(new(System.Windows.Media.Color.FromRgb(0x6B, 0x72, 0x80)));
+
+    private static SolidColorBrush FreezeBrush(SolidColorBrush brush)
+    {
+        brush.Freeze();
+        return brush;
+    }
 
     private void LoadModelStatus()
     {
@@ -369,7 +398,8 @@ public partial class SettingsWindow : Window
                 {
                     ModelOpStatus.Text = msg;
                     ModelOpStatus.Foreground = GrayBrush;
-                })));
+                })),
+                ct: ct);
 
             if (error is null)
             {
@@ -496,11 +526,23 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        // 验证端点 URL 格式（与 Save_Click 保持一致）
+        if (string.IsNullOrWhiteSpace(endpoint) ||
+            !Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) ||
+            (uri.Scheme != "http" && uri.Scheme != "https"))
+        {
+            TestStatus.Text = "请填写有效的 API 端点地址";
+            TestStatus.Foreground = new SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0xF5, 0x9E, 0x0B));
+            TestBtn.IsEnabled = true;
+            return;
+        }
+
         try
         {
             var options = new OpenAIClientOptions
             {
-                Endpoint = new Uri(endpoint)
+                Endpoint = uri
             };
             var client = new OpenAIClient(new ApiKeyCredential(apiKey), options);
             var chatClient = client.GetChatClient(model);

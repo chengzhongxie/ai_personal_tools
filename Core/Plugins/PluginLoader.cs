@@ -179,8 +179,12 @@ public class PluginLoader
         var refs = new List<MetadataReference>();
 
         // 添加 PersonalAssistant.exe 自身（让插件代码能引用 PluginBase）
+        // 单文件发布时 Assembly.Location 为空，回退到 Environment.ProcessPath
         var exePath = Assembly.GetExecutingAssembly().Location;
-        refs.Add(MetadataReference.CreateFromFile(exePath));
+        if (string.IsNullOrEmpty(exePath))
+            exePath = Environment.ProcessPath!;
+        if (!string.IsNullOrEmpty(exePath))
+            refs.Add(MetadataReference.CreateFromFile(exePath));
 
         // 添加所有已加载的运行时程序集
         foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())

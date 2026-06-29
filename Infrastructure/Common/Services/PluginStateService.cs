@@ -97,7 +97,9 @@ public class PluginStateService
             {
                 WriteIndented = true
             });
-            File.WriteAllText(StateFilePath, json);
+            var tmpPath = StateFilePath + ".tmp";
+            File.WriteAllText(tmpPath, json);
+            File.Move(tmpPath, StateFilePath, overwrite: true);
         }
         catch (Exception ex)
         {

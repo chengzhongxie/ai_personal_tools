@@ -33,6 +33,9 @@ public class ChatAgentService
     private AgentSession? _session;
     private bool _isOffline;
     private bool _networkChecked;
+    private string? _lastApiKey;
+    private string? _lastEndpoint;
+    private string? _lastModel;
 
     // 防止 SendMessageStreaming 和 ClearHistoryAsync 并发执行
     private readonly SemaphoreSlim _sendLock = new(1, 1);
@@ -72,13 +75,23 @@ public class ChatAgentService
         };
 
         // 订阅插件变更事件（热重载后重建 MAF Session）
+        // 必须持锁操作，防止与进行中的 RunStreamingAsync 竞态
         if (pluginHost is PluginAggregator aggregator)
         {
-            aggregator.PluginsChanged += () =>
+            aggregator.PluginsChanged += async () =>
             {
-                Log.Information("[ChatAgentService] 插件已更新，重建 Agent Session");
-                _agent = null; // 强制 EnsureInitializedAsync 重新创建 Agent + Session
-                _session = null;
+                Log.Information("[ChatAgentService] 插件已更新，等待锁后重建 Agent Session");
+                await _sendLock.WaitAsync();
+                try
+                {
+                    (_session as IDisposable)?.Dispose();
+                    _agent = null;
+                    _session = null;
+                }
+                finally
+                {
+                    _sendLock.Release();
+                }
             };
         }
         Log.Information("[ChatAgentService] 构造完成");
@@ -117,17 +130,28 @@ public class ChatAgentService
             _isOffline = true;
         }
         _networkChecked = true;
+        _sharedState.IsOffline = _isOffline;
     }
 
-    /// <summary>懒初始化 MAF Agent + Session，若 Key 未配置则返回错误</summary>
+    /// <summary>懒初始化 MAF Agent + Session，若配置已变更则自动重建。</summary>
     private async Task<string?> EnsureInitializedAsync()
     {
-        if (_agent is not null)
-            return null;
-
         var chatSettings = _settings.GetChatSettings();
         var apiKey = chatSettings.ApiKey
             ?? Environment.GetEnvironmentVariable("DEEPSEEK_API_KEY");
+
+        // 如果配置已变更，先释放旧的 Agent/Session
+        if (_agent is not null &&
+            (apiKey != _lastApiKey || chatSettings.Endpoint != _lastEndpoint || chatSettings.Model != _lastModel))
+        {
+            Log.Information("[ChatAgentService] 配置已变更，重建 Agent");
+            (_session as IDisposable)?.Dispose();
+            _agent = null;
+            _session = null;
+        }
+
+        if (_agent is not null)
+            return null;
 
         if (string.IsNullOrWhiteSpace(apiKey) || apiKey == "sk-your-key-here")
             return "DeepSeek API 密钥未配置。请右键托盘图标 → 设置，配置 API Key，" +
@@ -147,12 +171,19 @@ public class ChatAgentService
         );
 
         _session = await _agent.CreateSessionAsync();
+
+        // 记录当前配置，便于后续检测变更
+        _lastApiKey = apiKey;
+        _lastEndpoint = chatSettings.Endpoint;
+        _lastModel = chatSettings.Model;
+
         return null;
     }
 
     /// <summary>
     /// 流式发送消息并返回 token 序列。
     /// 通过 SemaphoreSlim 保证同一时间只有一个请求在执行。
+    /// 内建指数退避重试（429/503/网络错误最多 3 次）。
     /// </summary>
     public async IAsyncEnumerable<string> SendMessageStreaming(string message,
         [EnumeratorCancellation] CancellationToken ct = default)
@@ -167,16 +198,81 @@ public class ChatAgentService
                 yield break;
             }
 
-            await foreach (var update in _agent!.RunStreamingAsync(message, _session!, cancellationToken: ct))
+            const int maxRetries = 3;
+            var baseDelay = TimeSpan.FromSeconds(1);
+            Exception? lastError = null;
+
+            for (var attempt = 1; attempt <= maxRetries; attempt++)
             {
-                if (!string.IsNullOrEmpty(update.Text))
-                    yield return update.Text;
+                ct.ThrowIfCancellationRequested();
+
+                if (attempt > 1)
+                {
+                    (_session as IDisposable)?.Dispose();
+                    _session = await _agent!.CreateSessionAsync();
+                    var delay = baseDelay * Math.Pow(2, attempt - 1);
+                    Log.Warning(lastError, "[ChatAgentService] API 调用失败，第{Attempt}次重试（{Delay:f0}ms）",
+                        attempt, delay.TotalMilliseconds);
+                    await Task.Delay(delay, ct);
+                }
+
+                var (success, tokens, error) = await TryCollectStreamAsync(message, ct);
+
+                if (success && tokens is not null)
+                {
+                    foreach (var token in tokens)
+                        yield return token;
+                    yield break;
+                }
+
+                lastError = error;
             }
+
+            // 所有重试已耗尽
+            if (lastError is not null)
+                throw lastError;
         }
         finally
         {
             _sendLock.Release();
         }
+    }
+
+    /// <summary>
+    /// 执行单次流式 API 调用并收集所有 token。
+    /// 提取为非迭代器方法，可自由使用 try-catch 进行重试判断。
+    /// </summary>
+    private async Task<(bool success, List<string>? tokens, Exception? error)>
+        TryCollectStreamAsync(string message, CancellationToken ct)
+    {
+        try
+        {
+            var tokens = new List<string>();
+            await foreach (var update in _agent!.RunStreamingAsync(message, _session!, cancellationToken: ct))
+            {
+                if (!string.IsNullOrEmpty(update.Text))
+                    tokens.Add(update.Text);
+            }
+            return (true, tokens, null);
+        }
+        catch (Exception ex) when (IsTransientApiError(ex))
+        {
+            return (false, null, ex);
+        }
+    }
+
+    /// <summary>判断是否为可重试的瞬时 API 错误</summary>
+    private static bool IsTransientApiError(Exception ex)
+    {
+        return ex is HttpRequestException
+            || ex is TimeoutException
+            || (ex.InnerException is HttpRequestException)
+            || (ex.InnerException is TimeoutException)
+            || ex.Message.Contains("429")
+            || ex.Message.Contains("503")
+            || ex.Message.Contains("502")
+            || ex.Message.Contains("rate")
+            || ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -213,8 +309,12 @@ public class ChatAgentService
         {
             _ = Task.Run(async () =>
             {
-                await Task.Delay(1000); // 等待旧 session 不再被 MAF 引用
-                d.Dispose();
+                try
+                {
+                    await Task.Delay(1000); // 等待旧 session 不再被 MAF 引用
+                    d.Dispose();
+                }
+                catch (Exception ex) { Log.Debug(ex, "[ChatAgentService] 旧 Session Dispose 失败"); }
             });
         }
     }

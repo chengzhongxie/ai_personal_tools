@@ -20,13 +20,13 @@ internal static class ChatSystemPrompt
     public static string GetPrompt(string pluginPromptFragments)
     {
         // 快速路径：volatile 读检查，大部分调用命中缓存直接返回
-        if (_cachedPrompt is not null && pluginPromptFragments == _cachedPluginFragments)
+        if (_cachedPrompt is not null && string.Equals(pluginPromptFragments, _cachedPluginFragments, StringComparison.Ordinal))
             return _cachedPrompt;
 
         lock (_lock)
         {
             // 双重检查：锁内再次验证
-            if (_cachedPrompt is not null && pluginPromptFragments == _cachedPluginFragments)
+            if (_cachedPrompt is not null && string.Equals(pluginPromptFragments, _cachedPluginFragments, StringComparison.Ordinal))
                 return _cachedPrompt;
 
         var cwd = Environment.CurrentDirectory;

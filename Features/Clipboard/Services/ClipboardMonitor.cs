@@ -16,6 +16,9 @@ public sealed class ClipboardMonitor : IDisposable
     private const int WM_CLIPBOARDUPDATE = 0x031D;
     private const int MaxClipboardTextLength = 5120; // 5K 截断
 
+    // Win32 剪贴板原生读取（避免 WPF Clipboard.GetText 全量加载大文本到内存）
+    private const uint CF_UNICODETEXT = 13;
+
     private IntPtr _hwnd;
     private HwndSource? _hwndSource;
     private long _lastChangeTick;
@@ -29,6 +32,21 @@ public sealed class ClipboardMonitor : IDisposable
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool OpenClipboard(IntPtr hWndNewOwner);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetClipboardData(uint uFormat);
+
+    [DllImport("user32.dll")]
+    private static extern bool CloseClipboard();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GlobalLock(IntPtr hMem);
+
+    [DllImport("kernel32.dll")]
+    private static extern bool GlobalUnlock(IntPtr hMem);
 
     /// <summary>最近一次剪贴板文本内容（截断 5K），可能为 null</summary>
     public string? LatestClipboardText
@@ -58,7 +76,12 @@ public sealed class ClipboardMonitor : IDisposable
         }
 
         _hwndSource = HwndSource.FromHwnd(hwnd);
-        _hwndSource?.AddHook(WndProc);
+        if (_hwndSource is null)
+        {
+            Serilog.Log.Warning("[ClipboardMonitor] HwndSource.FromHwnd 返回 null，剪贴板监听将不可用");
+            return;
+        }
+        _hwndSource.AddHook(WndProc);
 
         Serilog.Log.Information("[ClipboardMonitor] 初始化完成");
     }
@@ -88,13 +111,39 @@ public sealed class ClipboardMonitor : IDisposable
             return;
         }
 
+        // 使用 Win32 API 仅读取前 5KB+1，避免全量加载超大文本到内存
         string? text = null;
         await Application.Current.Dispatcher.InvokeAsync(() =>
         {
             try
             {
-                if (System.Windows.Clipboard.ContainsText())
-                    text = System.Windows.Clipboard.GetText();
+                if (!System.Windows.Clipboard.ContainsText())
+                    return;
+
+                if (OpenClipboard(IntPtr.Zero))
+                {
+                    try
+                    {
+                        var hMem = GetClipboardData(CF_UNICODETEXT);
+                        if (hMem != IntPtr.Zero)
+                        {
+                            var ptr = GlobalLock(hMem);
+                            if (ptr != IntPtr.Zero)
+                            {
+                                try
+                                {
+                                    var maxChars = MaxClipboardTextLength + 1;
+                                    text = Marshal.PtrToStringUni(ptr, maxChars);
+                                    // 如果读出来正好是 maxChars 长度，说明可能被截断了
+                                    if (text?.Length == maxChars)
+                                        text = text[..MaxClipboardTextLength];
+                                }
+                                finally { GlobalUnlock(hMem); }
+                            }
+                        }
+                    }
+                    finally { CloseClipboard(); }
+                }
             }
             catch (COMException)
             {
@@ -105,7 +154,7 @@ public sealed class ClipboardMonitor : IDisposable
         if (string.IsNullOrEmpty(text))
             return;
 
-        // 截断
+        // 二次截断（防御性）
         if (text.Length > MaxClipboardTextLength)
             text = text[..MaxClipboardTextLength];
 

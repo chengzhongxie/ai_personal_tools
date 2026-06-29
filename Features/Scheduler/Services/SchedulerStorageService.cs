@@ -29,7 +29,9 @@ public class SchedulerStorageService
 
         var path = GetPath(task.Name);
         var json = JsonSerializer.Serialize(task, JsonOptions);
-        File.WriteAllText(path, json);
+        var tmpPath = path + ".tmp";
+        File.WriteAllText(tmpPath, json);
+        File.Move(tmpPath, path, overwrite: true);
     }
 
     /// <summary>更新任务的 LastRunTimestamp 并持久化</summary>

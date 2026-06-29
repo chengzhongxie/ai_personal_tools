@@ -25,6 +25,7 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
     private readonly List<IToolPlugin> _allPlugins;
     private List<IToolPlugin> _activePlugins;
     private readonly PluginStateService _pluginState;
+    private readonly PluginSharedState _sharedState;
     private readonly WorkflowRecorder _recorder;
     private readonly PluginLoader _pluginLoader;
     private readonly PluginFileWatcher? _fileWatcher;
@@ -67,13 +68,15 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
 
     public PluginAggregator(IEnumerable<IToolPlugin> builtInPlugins,
         PluginLoader pluginLoader, WorkflowRecorder recorder,
-        PluginStateService pluginState, PluginFileWatcher fileWatcher)
+        PluginStateService pluginState, PluginFileWatcher fileWatcher,
+        PluginSharedState sharedState)
     {
         Log.Information("[PluginAggregator] 构造开始");
         _recorder = recorder;
         _pluginState = pluginState;
         _pluginLoader = pluginLoader;
         _fileWatcher = fileWatcher;
+        _sharedState = sharedState;
 
         // 1. 加载外部插件并包装为 ExternalPluginAdapter
         var externalBases = pluginLoader.LoadPlugins();
@@ -177,12 +180,15 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
     /// <summary>遍历启用的插件收集 AIFunction（带缓存，插件列表变更后自动重建）</summary>
     public AIFunction[] GetAllTools()
     {
-        if (_cachedTools is not null && _toolsCacheValid)
-            return _cachedTools;
+        lock (_pluginsLock)
+        {
+            if (_cachedTools is not null && _toolsCacheValid)
+                return _cachedTools;
 
-        _cachedTools = _activePlugins.SelectMany(p => p.GetTools()).ToArray();
-        _toolsCacheValid = true;
-        return _cachedTools;
+            _cachedTools = _activePlugins.SelectMany(p => p.GetTools()).ToArray();
+            _toolsCacheValid = true;
+            return _cachedTools;
+        }
     }
 
     /// <summary>
@@ -196,13 +202,23 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
         if (!NonRecordableTools.Contains(toolName))
             _recorder.RecordStep(toolName, args);
 
-        foreach (var plugin in _activePlugins)
+        // 快照活跃插件列表，避免热重载时集合被替换导致 foreach 异常
+        List<IToolPlugin> activeSnapshot;
+        lock (_pluginsLock) { activeSnapshot = _activePlugins; }
+
+        foreach (var plugin in activeSnapshot)
         {
             try
             {
                 var result = await plugin.TryExecuteToolAsync(toolName, args);
                 if (result is not null)
+                {
+                    // 记录工具调用到共享状态（供 UI 展示）
+                    var displayResult = result.Length > 200 ? result[..200] + "..." : result;
+                    lock (_sharedState.CurrentRoundToolCalls)
+                        _sharedState.CurrentRoundToolCalls.Add((toolName, displayResult));
                     return result;
+                }
             }
             catch (Exception ex)
             {
@@ -231,9 +247,12 @@ public class PluginAggregator : IToolPluginHost, IDangerousToolPolicy
     /// </summary>
     public void RefreshActivePlugins()
     {
-        _activePlugins = _allPlugins
-            .Where(p => _pluginState.IsEnabled(p.Name))
-            .ToList();
-        _toolsCacheValid = false;
+        lock (_pluginsLock)
+        {
+            _activePlugins = _allPlugins
+                .Where(p => _pluginState.IsEnabled(p.Name))
+                .ToList();
+            _toolsCacheValid = false;
+        }
     }
 }

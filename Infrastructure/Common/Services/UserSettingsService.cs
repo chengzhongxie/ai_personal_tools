@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Win32;
@@ -67,7 +68,7 @@ public class UserSettingsService
         Endpoint = Endpoint
     };
 
-    /// <summary>保存设置到用户目录并同步注册表</summary>
+    /// <summary>保存设置到用户目录并同步注册表。API Key 使用 DPAPI 加密后存储。</summary>
     public void Save()
     {
         var dir = System.IO.Path.GetDirectoryName(SettingsFilePath)!;
@@ -76,7 +77,7 @@ public class UserSettingsService
 
         var json = JsonSerializer.Serialize(new SettingsData
         {
-            ApiKey = ApiKey,
+            ApiKey = EncryptApiKey(ApiKey),
             Model = Model.ToLowerInvariant(),
             Endpoint = Endpoint,
             IsAutoStartEnabled = IsAutoStartEnabled,
@@ -87,7 +88,9 @@ public class UserSettingsService
             IsDarkTheme = IsDarkTheme
         }, JsonOptions);
 
-        System.IO.File.WriteAllText(SettingsFilePath, json);
+        var tmpPath = SettingsFilePath + ".tmp";
+        System.IO.File.WriteAllText(tmpPath, json);
+        System.IO.File.Move(tmpPath, SettingsFilePath, overwrite: true);
         SyncAutoStart();
     }
 
@@ -105,7 +108,7 @@ public class UserSettingsService
             var data = JsonSerializer.Deserialize<SettingsData>(json);
             if (data is not null)
             {
-                ApiKey = data.ApiKey ?? string.Empty;
+                ApiKey = DecryptApiKey(data.ApiKey);
                 Model = data.Model ?? "deepseek-v4-flash";
                 Endpoint = data.Endpoint ?? "https://api.deepseek.com";
                 IsAutoStartEnabled = data.IsAutoStartEnabled;
@@ -122,14 +125,57 @@ public class UserSettingsService
         }
     }
 
+    private const string DpapiPrefix = "DPAPI:";
+
+    /// <summary>使用 DPAPI（CurrentUser 作用域）加密 API Key</summary>
+    private static string? EncryptApiKey(string? key)
+    {
+        if (string.IsNullOrEmpty(key)) return key;
+        try
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(key);
+            var encrypted = ProtectedData.Protect(bytes, null, DataProtectionScope.CurrentUser);
+            return DpapiPrefix + Convert.ToBase64String(encrypted);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[UserSettings] API Key 加密失败，将明文存储");
+            return key;
+        }
+    }
+
+    /// <summary>解密 DPAPI 加密的 API Key，兼容明文旧格式</summary>
+    private static string DecryptApiKey(string? stored)
+    {
+        if (string.IsNullOrEmpty(stored)) return string.Empty;
+        if (!stored.StartsWith(DpapiPrefix, StringComparison.Ordinal))
+        {
+            // 旧格式明文：下次保存时自动升级为加密格式
+            return stored;
+        }
+        try
+        {
+            var base64 = stored[DpapiPrefix.Length..];
+            var bytes = Convert.FromBase64String(base64);
+            var decrypted = ProtectedData.Unprotect(bytes, null, DataProtectionScope.CurrentUser);
+            return System.Text.Encoding.UTF8.GetString(decrypted);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[UserSettings] API Key 解密失败，可能来自其他用户或系统");
+            return string.Empty;
+        }
+    }
+
     private void SyncAutoStart()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunRegistryPath, writable: true);
         if (IsAutoStartEnabled)
         {
-            var exePath = System.IO.Path.ChangeExtension(
-                System.Reflection.Assembly.GetExecutingAssembly().Location,
-                ".exe");
+            var exePath = Environment.ProcessPath!
+                ?? System.IO.Path.ChangeExtension(
+                    System.Reflection.Assembly.GetExecutingAssembly().Location,
+                    ".exe");
             key?.SetValue(AppKeyName, $"\"{exePath}\"");
         }
         else

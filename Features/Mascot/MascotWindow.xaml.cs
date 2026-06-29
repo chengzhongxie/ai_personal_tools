@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
+using Serilog;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -142,7 +143,8 @@ public partial class MascotWindow : Window
     {
         _isDragging = false;
         AnimateSquash();
-        DragMove();
+        try { DragMove(); }
+        catch (InvalidOperationException ex) { Log.Debug(ex, "[MascotWindow] DragMove 失败"); }
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)

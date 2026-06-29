@@ -16,4 +16,10 @@ public class PluginSharedState
 
     /// <summary>触发清空对话事件</summary>
     public void RaiseClearChat() => OnClearChat?.Invoke();
+
+    /// <summary>网络是否不可达（ChatAgentService 探测结果，供插件判断是否跳过 HTTP 调用）</summary>
+    public bool IsOffline { get; set; }
+
+    /// <summary>本轮对话中调用的工具记录（PluginAggregator 写入，ChatViewModel 读取并展示）</summary>
+    public List<(string ToolName, string Result)> CurrentRoundToolCalls { get; } = new();
 }
