@@ -26,6 +26,7 @@ packages/
 
 ## Build results
 [Pp]ublished/
+publish/
 *.Cache
 *.dll
 *.exe

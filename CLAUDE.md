@@ -64,7 +64,7 @@
 ## 架构：插件化工具系统
 
 ```
-ChatAgentService (MAF 生命周期 + 流式输出, ~130行)
+ChatAgentService (MAF 生命周期 + 流式输出, ~260行)
     │
     ├── IToolPluginHost (PluginAggregator)  ← WorkflowExecutorService
     │       │                                   ← SchedulerService
@@ -165,7 +165,7 @@ public sealed class PluginToolDefinition
 ## 功能模块
 
 ### Chat
-- **ChatAgentService**：~160 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(ct)` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose）。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。离线探测（`ProbeNetworkAsync()`，3s 超时 HEAD 请求）+ `IsOffline` 属性。对话摘要轮次计数（`IncrementSummarizerRound()` / `ShouldSummarize`）+ 摘要提示词片段注入。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
+- **ChatAgentService**：~260 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(ct)` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose）。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。离线探测（`ProbeNetworkAsync()`，3s 超时 HEAD 请求）+ `IsOffline` 属性。对话摘要轮次计数（`IncrementSummarizerRound()` / `ShouldSummarize`）+ 摘要提示词片段注入。`SemaphoreSlim(1,1)` 防止 `SendMessageStreaming` 和 `ClearHistoryAsync` 并发执行，`OnClearChat` 事件通过 async void 等待锁释放后执行。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
 - **ChatSystemPrompt**：系统提示词构建器（从 ChatAgentService.Prompt.cs 提取）。基础提示词 + 聚合所有插件的提示词片段 + 对话摘要片段。线程安全锁保护缓存（双重检查锁定），插件片段不变则复用（零分配）。
 - **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话历史持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。离线模式：网络不可用时强制走本地模型。Token 用量显示（底部状态栏 `TokenDisplay`，格式 "本轮: 150 tokens | 本月: 12.3K tokens"）。对话摘要集成：超过 30 轮自动触发本地摘要生成，修剪旧消息并注入摘要。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService + TokenUsageService + ConversationSummarizer。
 - **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。
@@ -214,6 +214,10 @@ public sealed class PluginToolDefinition
 - **PatternDetector**：最近 50 轮环形缓冲 + 序列匹配（≥3 次重复）→ 触发建议。已建议的序列不重复提示（`_shownKeys` HashSet）
 - **WorkflowStorageService**：JSON 持久化到 `%APPDATA%\PersonalAssistant\workflows\` 目录
 - **WorkflowExecutorService**：本地回放已保存工作流，不调用 AI，通过 `IToolPluginHost.ExecuteToolStepAsync()` 执行
+
+### Clipboard（智能剪贴板）
+- **ClipboardMonitor**：Win32 `AddClipboardFormatListener` 监听剪贴板变化（OS 消息驱动，零轮询）。200ms 防抖，COMException 容错（剪贴板被其他进程锁定时静默跳过）。本地启发式分类算法：URL（正则匹配协议头）→ Path（盘符+路径验证）→ Number（纯数字/逗号/点号）→ Code（符号密度>12%且≥3种符号族）→ Text（含字母）。`Initialize(IntPtr hwnd)` 两阶段初始化（构造参数空 → OnSourceInitialized 挂载 HWND）。`LatestClipboardText`（截断 5K）, `LatestClipboardType`, `SuppressNextUpdate()`（避免写剪贴板反馈循环）。`ClipboardChanged` 事件（后台线程触发，订阅者需自行封送 UI）。IDisposable：RemoveClipboardFormatListener + 移除 Hook。资源成本：OS 消息驱动，空闲时零 CPU，~200 bytes 常驻内存。
+- **ContextMenuPopup**：智能剪贴板上下文菜单弹窗（WindowStyle=None, AllowsTransparency=True, Topmost=True, Width=240）。根据内容类型动态展示操作按钮（纯代码逻辑，零 token）。本地操作（在浏览器打开、打开文件、打开文件夹）用 Process.Start 直接执行；AI 操作（解释代码、翻译、总结等）预填 MainWindow 输入框。底部"桌面小组件"按钮提供 WidgetPanel 入口（当剪贴板有内容时右键先弹 ContextMenuPopup，可通过此按钮打开面板）。PositionNear 定位到悬浮窗左侧。OnDeactivated/Escape 自动关闭。所有颜色使用 DynamicResource 主题适配。资源成本：仅在显示时消耗（窗口渲染），隐藏时零开销。
 
 ### KnowledgeBase（知识库搜索）
 - **KnowledgeBaseService**：全文检索引擎，支持 .md/.txt/.pdf 文件。中文分词（逐字）+ 英文分词（空格），TF-IDF + 余弦相似度排序，Top-K 结果返回。索引持久化到 `%APPDATA%\PersonalAssistant\knowledge_base\index.json`。`IndexDirectoryAsync(dir, progress?)` 异步索引目录，`Search(query, topK=5)` 搜索。资源成本：仅索引和搜索时消耗 CPU，空闲时零开销。
@@ -289,7 +293,7 @@ public sealed class PluginToolDefinition
 - **MascotWindow**：卡通机器人悬浮窗，纯 XAML 绘制（椭圆/矩形/Path 拼合）
 - **鼠标交互：** 眼球追踪鼠标（25fps 节流）、悬停放大 1.12x + 天线变青、点击压缩弹跳、可拖动
 - 左键点击悬浮窗（未拖动）→ 隐藏人偶 → 恢复主窗口并聚焦输入框
-- 右键点击悬浮窗 → 切换 WidgetPanel 桌面小组件面板（显示/隐藏）
+- 右键点击悬浮窗 → 剪贴板有内容则弹出智能上下文菜单（ContextMenuPopup），无内容则切换 WidgetPanel 桌面小组件面板（显示/隐藏）
 - 人偶隐藏时浮动动画自动暂停，显示时恢复（省 CPU）
 
 ### Settings
@@ -356,6 +360,10 @@ public sealed class PluginToolDefinition
 ### 知识库资源评估
 - **KnowledgeBaseService**：启动时 `LoadIndex()` 一次性加载索引到内存，空闲时仅内存驻留。索引时 CPU 按需消耗（文件读取 + 分词），搜索时 O(n) 余弦相似度计算（n = 分块数）
 
+### 剪贴板资源评估
+- **ClipboardMonitor**：OS 消息驱动，空闲时零 CPU，~200 bytes 常驻内存（仅 latestText 字符串 + type 枚举 + lock 对象）。分类算法纯本地启发式（正则/字符串匹配），零 token 消耗。剪贴板变化时一次性 CPU 消耗 <1ms。
+- **ContextMenuPopup**：仅在显示时消耗（窗口渲染 + 几个 Button 控件），隐藏时零开销。每次弹出时生成按钮（一次性 UI 分配，关闭后 GC 回收）。
+
 ### 小组件资源评估
 - **WidgetPanel**：仅在显示时消耗（窗口渲染），隐藏时零开销
 - **SystemStatusWidget**：5s Timer 仅在显示时运行，隐藏时 Dispose 停止
@@ -388,7 +396,7 @@ public sealed class PluginToolDefinition
 1. `App.xaml.cs` → `Host.CreateDefaultBuilder` + Serilog + DI 注册（Scrutor 3 种扫描 + 手动注册，ExternalPluginAdapter 排除扫描）
 2. `UserSettingsService` 从 `%APPDATA%` 加载配置
 3. `ThemeService.Initialize()` 应用主题（深色/浅色，Default 暗色），必须在 MainWindow 之前执行
-4. `MainWindow` 加载 → 注册可配置全局热键 → 显示 `ChatView`
+4. `MainWindow` 加载 → 注册可配置全局热键 → 初始化 ClipboardMonitor（OS 消息驱动）→ 显示 `ChatView`
 5. `TrayService` 初始化托盘图标 + 右键菜单
 6. `SchedulerService` 初始化后台定时任务调度（30s 间隔）
 7. `KnowledgeBaseService.LoadIndex()` 加载已有知识库索引
@@ -465,6 +473,10 @@ PersonalAssistant/
 │   │   ├── WeatherWidget.xaml/.cs       # 天气小组件
 │   │   ├── TodoWidget.xaml/.cs          # 待办小组件
 │   │   └── SystemStatusWidget.xaml/.cs  # 系统状态小组件
+│   ├── Clipboard/
+│   │   ├── Models/                      # ClipboardContentType, ClipboardSuggestion
+│   │   ├── Services/                    # ClipboardMonitor (Win32 剪贴板监听 + 分类)
+│   │   └── Views/                       # ContextMenuPopup (智能上下文菜单弹窗)
 │   ├── Notifications/
 │   │   ├── NotificationHistoryWindow.xaml/.cs  # 通知历史窗口
 │   ├── Mascot/

@@ -34,6 +34,9 @@ public class ChatAgentService
     private bool _isOffline;
     private bool _networkChecked;
 
+    // 防止 SendMessageStreaming 和 ClearHistoryAsync 并发执行
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+
     // 网络探测用的 HttpClient（复用，避免频繁创建）
     private static readonly HttpClient SharedHttpClient = new() { Timeout = TimeSpan.FromSeconds(3) };
 
@@ -50,10 +53,22 @@ public class ChatAgentService
         _summarizer = summarizer;
 
         // 设置清空对话回调（供 ChatToolsPlugin.ClearChat 调用）
-        _sharedState.OnClearChat += () =>
+        // 使用 async void 等待锁释放后再执行清空，避免与 SendMessageStreaming 并发
+        _sharedState.OnClearChat += async () =>
         {
-            // 使用 fire-and-forget 避免在事件调用链中阻塞
-            _ = ClearHistoryAsync();
+            try
+            {
+                await _sendLock.WaitAsync();
+                await ClearHistoryInternalAsync();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning(ex, "[ChatAgentService] OnClearChat 执行失败");
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
         };
 
         // 订阅插件变更事件（热重载后重建 MAF Session）
@@ -137,21 +152,30 @@ public class ChatAgentService
 
     /// <summary>
     /// 流式发送消息并返回 token 序列。
+    /// 通过 SemaphoreSlim 保证同一时间只有一个请求在执行。
     /// </summary>
     public async IAsyncEnumerable<string> SendMessageStreaming(string message,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
-        var initError = await EnsureInitializedAsync();
-        if (initError is not null)
+        await _sendLock.WaitAsync(ct);
+        try
         {
-            yield return initError;
-            yield break;
-        }
+            var initError = await EnsureInitializedAsync();
+            if (initError is not null)
+            {
+                yield return initError;
+                yield break;
+            }
 
-        await foreach (var update in _agent!.RunStreamingAsync(message, _session!, cancellationToken: ct))
+            await foreach (var update in _agent!.RunStreamingAsync(message, _session!, cancellationToken: ct))
+            {
+                if (!string.IsNullOrEmpty(update.Text))
+                    yield return update.Text;
+            }
+        }
+        finally
         {
-            if (!string.IsNullOrEmpty(update.Text))
-                yield return update.Text;
+            _sendLock.Release();
         }
     }
 
@@ -159,6 +183,22 @@ public class ChatAgentService
     /// 清空对话历史（创建新 Session）并重置模式检测器和摘要器。
     /// </summary>
     public async Task ClearHistoryAsync()
+    {
+        await _sendLock.WaitAsync();
+        try
+        {
+            await ClearHistoryInternalAsync();
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// 清空对话历史的内部实现（调用方必须持有 _sendLock）。
+    /// </summary>
+    private async Task ClearHistoryInternalAsync()
     {
         var oldSession = _session;
         if (_agent is not null)

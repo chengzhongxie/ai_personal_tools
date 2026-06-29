@@ -403,8 +403,8 @@ internal static class SystemToolMethods
             string? result = null;
             Application.Current.Dispatcher.Invoke(() =>
             {
-                if (Clipboard.ContainsText())
-                    result = Clipboard.GetText();
+                if (System.Windows.Clipboard.ContainsText())
+                    result = System.Windows.Clipboard.GetText();
             });
             return result ?? "(剪贴板为空或非文本内容)";
         }
@@ -426,7 +426,7 @@ internal static class SystemToolMethods
         {
             Application.Current.Dispatcher.Invoke(() =>
             {
-                Clipboard.SetText(text);
+                System.Windows.Clipboard.SetText(text);
             });
             return $"已复制到剪贴板 ({text.Length} 个字符)";
         }

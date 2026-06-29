@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using PersonalAssistant.Features.Clipboard.Services;
 using PersonalAssistant.Features.Mascot;
 using PersonalAssistant.Infrastructure.Common.Helpers;
 using PersonalAssistant.Infrastructure.Common.Services;
@@ -18,6 +19,7 @@ public partial class MainWindow : FluentWindow
     private readonly TrayService _trayService;
     private readonly MascotWindow _mascotWindow;
     private readonly UserSettingsService _settings;
+    private readonly ClipboardMonitor _clipboardMonitor;
     private bool _isShuttingDown;
 
     // Win32 global hotkey
@@ -38,14 +40,15 @@ public partial class MainWindow : FluentWindow
     private const byte VK_C = 0x43;
     private const uint KEYEVENTF_KEYUP = 0x0002;
 
-    /// <summary>DI 构造函数，注入 TrayService、MascotWindow 和 UserSettingsService</summary>
+    /// <summary>DI 构造函数，注入 TrayService、MascotWindow、ClipboardMonitor 和 UserSettingsService</summary>
     public MainWindow(TrayService trayService, MascotWindow mascotWindow,
-        UserSettingsService settings)
+        UserSettingsService settings, ClipboardMonitor clipboardMonitor)
     {
         Serilog.Log.Information("[MainWindow] 构造开始");
         _trayService = trayService;
         _mascotWindow = mascotWindow;
         _settings = settings;
+        _clipboardMonitor = clipboardMonitor;
         DataContext = this;
         InitializeComponent();
         Serilog.Log.Information("[MainWindow] InitializeComponent完成");
@@ -77,6 +80,9 @@ public partial class MainWindow : FluentWindow
         }
 
         HwndSource.FromHwnd(hwnd)!.AddHook(WndProc);
+
+        // 初始化剪贴板监听（OS 消息驱动，零轮询）
+        _clipboardMonitor.Initialize(hwnd);
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)

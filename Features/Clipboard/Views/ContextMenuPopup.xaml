@@ -1,0 +1,88 @@
+<Window x:Class="PersonalAssistant.Features.Clipboard.Views.ContextMenuPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Width="240"
+        SizeToContent="Height"
+        SnapsToDevicePixels="True"
+        KeyDown="Window_KeyDown">
+
+    <Border
+        Background="{DynamicResource Brush.BackgroundPrimary}"
+        BorderBrush="{DynamicResource Brush.BorderSecondary}"
+        BorderThickness="1"
+        CornerRadius="12"
+        Padding="12">
+
+        <StackPanel>
+            <!-- 类型图标 + 类型标签 -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock x:Name="TypeIcon" FontSize="16" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBlock x:Name="TypeLabel"
+                           FontSize="12"
+                           Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                           VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- 内容预览 -->
+            <Border
+                Background="{DynamicResource Brush.BackgroundSecondary}"
+                CornerRadius="6"
+                Padding="8,6"
+                Margin="0,0,0,10">
+                <TextBlock x:Name="ContentPreview"
+                           FontSize="11"
+                           Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                           TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis"
+                           MaxHeight="60" />
+            </Border>
+
+            <!-- 分隔线 -->
+            <Rectangle Height="1" Margin="0,2,0,8"
+                       Fill="{DynamicResource Brush.BorderPrimary}" />
+
+            <!-- 操作按钮 -->
+            <StackPanel x:Name="ActionButtons" />
+
+            <!-- 底部分隔线 + 桌面小组件按钮 -->
+            <Rectangle Height="1" Margin="0,8,0,8"
+                       Fill="{DynamicResource Brush.BorderPrimary}" />
+
+            <Button x:Name="WidgetsButton"
+                    Click="WidgetsButton_Click"
+                    Background="Transparent"
+                    Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                    BorderThickness="0"
+                    FontSize="11"
+                    HorizontalContentAlignment="Center"
+                    Cursor="Hand"
+                    Padding="4,4">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Button.Template>
+                <Button.Style>
+                    <Style TargetType="Button">
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </Button.Style>
+                桌面小组件
+            </Button>
+        </StackPanel>
+    </Border>
+</Window>

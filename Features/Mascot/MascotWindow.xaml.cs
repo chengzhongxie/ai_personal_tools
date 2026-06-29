@@ -5,6 +5,8 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using Microsoft.Extensions.DependencyInjection;
+using PersonalAssistant.Features.Clipboard.Services;
+using PersonalAssistant.Features.Clipboard.Views;
 using PersonalAssistant.Features.Widgets;
 using PersonalAssistant.Features.Widgets.Services;
 
@@ -19,6 +21,7 @@ public partial class MascotWindow : Window
     private readonly IServiceProvider _serviceProvider;
     private bool _isDragging;
     private WidgetPanel? _widgetPanel;
+    private ContextMenuPopup? _contextMenuPopup;
 
     // 瞳孔基准位置
     private const double LpX = 35, LpY = 34, RpX = 59, RpY = 34;
@@ -154,7 +157,38 @@ public partial class MascotWindow : Window
 
     protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
     {
-        ToggleWidgetPanel();
+        ShowContextMenu();
+    }
+
+    /// <summary>
+    /// 右键悬浮窗 → 剪贴板有内容则弹出智能上下文菜单，无内容则回退到 WidgetPanel。
+    /// </summary>
+    private void ShowContextMenu()
+    {
+        try
+        {
+            var monitor = _serviceProvider.GetRequiredService<ClipboardMonitor>();
+            var clipText = monitor.LatestClipboardText;
+
+            if (!string.IsNullOrEmpty(clipText))
+            {
+                if (_contextMenuPopup is null)
+                {
+                    _contextMenuPopup = _serviceProvider.GetRequiredService<ContextMenuPopup>();
+                    _contextMenuPopup.Closed += (_, _) => _contextMenuPopup = null;
+                }
+                _contextMenuPopup.ShowFor(this, monitor.LatestClipboardType, clipText);
+            }
+            else
+            {
+                ToggleWidgetPanel();
+            }
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Warning(ex, "[MascotWindow] ShowContextMenu 异常，回退到 WidgetPanel");
+            ToggleWidgetPanel();
+        }
     }
 
     private void ToggleWidgetPanel()

@@ -54,8 +54,7 @@ public partial class App : Application
                 //    新增插件零 DI 配置 — 实现 IToolPlugin 即自动发现
                 // ═══════════════════════════════════════════════════════════
                 services.Scan(scan => scan
-                    .FromApplicationDependencies(a =>
-                        a.FullName!.StartsWith("PersonalAssistant"))
+                    .FromAssemblyOf<App>()
                     .AddClasses(c => c.AssignableTo<IToolPlugin>()
                         .Where(t => t != typeof(Core.Plugins.ExternalPluginAdapter)))
                     .As<IToolPlugin>()
@@ -65,8 +64,7 @@ public partial class App : Application
                 // 2. 自动扫描 *Service（排除 IToolPlugin）→ AsImplementedInterfaces → Singleton
                 // ═══════════════════════════════════════════════════════════
                 services.Scan(scan => scan
-                    .FromApplicationDependencies(a =>
-                        a.FullName!.StartsWith("PersonalAssistant"))
+                    .FromAssemblyOf<App>()
                     .AddClasses(c => c
                         .Where(t => t.Name.EndsWith("Service")
                             && !typeof(IToolPlugin).IsAssignableFrom(t)))
@@ -77,8 +75,7 @@ public partial class App : Application
                 // 3. 自动扫描 *ViewModel / *View → AsSelf → Singleton
                 // ═══════════════════════════════════════════════════════════
                 services.Scan(scan => scan
-                    .FromApplicationDependencies(a =>
-                        a.FullName!.StartsWith("PersonalAssistant"))
+                    .FromAssemblyOf<App>()
                     .AddClasses(c => c.Where(t =>
                         t.Name.EndsWith("ViewModel") || t.Name.EndsWith("View")))
                     .AsSelf()
@@ -152,6 +149,10 @@ public partial class App : Application
 
                 // 插件间共享状态
                 services.AddSingleton<PluginSharedState>();
+
+                // 剪贴板监听 + 智能上下文菜单
+                services.AddSingleton<Features.Clipboard.Services.ClipboardMonitor>();
+                services.AddTransient<Features.Clipboard.Views.ContextMenuPopup>();
 
                 // Window 类
                 services.AddSingleton<MainWindow>();
@@ -230,6 +231,7 @@ public partial class App : Application
     protected override async void OnExit(ExitEventArgs e)
     {
         Services.GetRequiredService<TrayService>().Dispose();
+        Services.GetRequiredService<Features.Clipboard.Services.ClipboardMonitor>().Dispose();
         await _host.StopAsync(TimeSpan.FromSeconds(5));
         _host.Dispose();
         base.OnExit(e);
