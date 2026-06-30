@@ -120,11 +120,17 @@ public partial class App : Application
                 // Token 用量统计（无接口）
                 services.AddSingleton<Features.Chat.Services.TokenUsageService>();
 
+                // 多对话存储服务（无接口，必须在 ChatHistoryService 之前注册）
+                services.AddSingleton<Features.Chat.Services.ConversationStorageService>();
+
                 // 对话摘要器（无接口）
                 services.AddSingleton<Features.Chat.Services.ConversationSummarizer>();
 
                 // 知识库服务（无接口）
                 services.AddSingleton<Features.KnowledgeBase.Services.KnowledgeBaseService>();
+
+                // 本地命令拦截器（无接口）
+                services.AddSingleton<Features.Chat.Services.LocalCommandInterceptor>();
 
                 // 对话导出服务（无接口）
                 services.AddSingleton<Features.Chat.Services.ChatExportService>();
@@ -180,6 +186,23 @@ public partial class App : Application
             // 初始化主题（必须在 MainWindow 之前，保证 DynamicResource 可用）
             Services.GetRequiredService<Infrastructure.Common.Services.ThemeService>().Initialize();
             Log.Information("[App] 主题初始化完成，准备创建主窗口");
+
+            // 预检：验证新服务的 DI 解析是否正常
+            try
+            {
+                Services.GetRequiredService<Features.Chat.Services.ConversationStorageService>();
+                Log.Information("[App] ConversationStorageService 解析成功");
+                Services.GetRequiredService<Features.Chat.ViewModels.ConversationListViewModel>();
+                Log.Information("[App] ConversationListViewModel 解析成功");
+                Services.GetRequiredService<Features.Chat.ViewModels.ChatViewModel>();
+                Log.Information("[App] ChatViewModel 解析成功");
+            }
+            catch (Exception diEx)
+            {
+                Log.Fatal(diEx, "[App] DI 解析失败");
+                MessageBox.Show($"DI 解析失败:\n\n{diEx}", "启动错误", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
 
             var mainWindow = Services.GetRequiredService<MainWindow>();
             Log.Information("[App] 主窗口创建成功，准备显示");

@@ -8,6 +8,7 @@ using PersonalAssistant.Core.Services;
 using PersonalAssistant.Features.Chat.Models;
 using PersonalAssistant.Features.Chat.Models.Enums;
 using PersonalAssistant.Features.Chat.Services;
+using PersonalAssistant.Features.Clipboard.Services;
 using PersonalAssistant.Infrastructure.Common.Services;
 using Serilog;
 using Wpf.Ui.Controls;
@@ -24,10 +25,12 @@ public partial class ChatViewModel : ObservableObject
 
     private readonly ChatAgentService _chatAgent;
     private readonly IChatHistoryService _historyService;
+    private readonly ConversationStorageService _convStorage;
     private readonly ModelRoutingService _routing;
     private readonly TokenUsageService _tokenUsage;
     private readonly ConversationSummarizer _summarizer;
     private readonly PluginSharedState _sharedState;
+    private readonly LocalCommandInterceptor _localCmd;
 
     // 输入历史（环形缓冲区）
     private const int MaxInputHistory = 50;
@@ -36,6 +39,9 @@ public partial class ChatViewModel : ObservableObject
 
     // 取消令牌源（用于中止流式响应）
     private CancellationTokenSource? _currentCts;
+
+    /// <summary>对话列表 ViewModel</summary>
+    public ConversationListViewModel ConversationList { get; }
 
     /// <summary>聊天消息列表</summary>
     [ObservableProperty]
@@ -69,18 +75,37 @@ public partial class ChatViewModel : ObservableObject
     [ObservableProperty]
     private bool _isOffline;
 
+    /// <summary>Sidebar 是否展开</summary>
+    [ObservableProperty]
+    private bool _sidebarExpanded = true;
+
+    /// <summary>待粘贴的图片字节数据</summary>
+    [ObservableProperty]
+    private byte[]? _pendingImageBytes;
+
+    /// <summary>是否有待粘贴的图片</summary>
+    public bool HasPendingImage => PendingImageBytes is not null;
+
+    partial void OnPendingImageBytesChanged(byte[]? value)
+        => OnPropertyChanged(nameof(HasPendingImage));
+
     public ChatViewModel(ChatAgentService chatAgent, IChatHistoryService historyService,
         IDangerousToolPolicy dangerPolicy, ModelRoutingService routing,
         TokenUsageService tokenUsage, ConversationSummarizer summarizer,
-        PluginSharedState sharedState)
+        PluginSharedState sharedState, ConversationStorageService convStorage,
+        ConversationListViewModel conversationList,
+        LocalCommandInterceptor localCmd)
     {
         Log.Information("[ChatViewModel] 构造开始");
         _chatAgent = chatAgent;
         _historyService = historyService;
+        _convStorage = convStorage;
         _routing = routing;
         _tokenUsage = tokenUsage;
         _summarizer = summarizer;
         _sharedState = sharedState;
+        _localCmd = localCmd;
+        ConversationList = conversationList;
 
         // 异步网络探测
         _ = UpdateOfflineStatusAsync();
@@ -104,7 +129,10 @@ public partial class ChatViewModel : ObservableObject
                 == System.Windows.MessageBoxResult.Yes);
         };
 
-        // 从磁盘恢复对话历史
+        // 订阅对话切换事件
+        ConversationList.ConversationSwitched += OnConversationSwitchedAsync;
+
+        // 从当前活跃对话加载历史
         var saved = _historyService.Load();
         if (saved.Count > 0)
         {
@@ -139,6 +167,28 @@ public partial class ChatViewModel : ObservableObject
         Log.Information("[ChatViewModel] 构造完成");
     }
 
+    /// <summary>对话切换：保存当前 → 清空 → 加载新对话</summary>
+    private async Task OnConversationSwitchedAsync(ConversationInfo conv)
+    {
+        // 保存当前对话
+        _historyService.Save(Messages);
+
+        // 清空 UI
+        Messages.Clear();
+        ShowInfoBar = false;
+
+        // 重建 MAF Session
+        await _chatAgent.SwitchConversationAsync();
+
+        // 加载新对话消息
+        var saved = _convStorage.LoadMessages(conv.Id);
+        foreach (var msg in saved)
+            Messages.Add(msg);
+
+        // 更新草稿文件路径
+        Log.Information("[ChatViewModel] 已切换到对话: {Id} ({Title})", conv.Id, conv.Title);
+    }
+
     /// <summary>更新离线状态（异步网络探测）</summary>
     private async Task UpdateOfflineStatusAsync()
     {
@@ -152,9 +202,13 @@ public partial class ChatViewModel : ObservableObject
     /// 首次发送时携带磁盘历史以恢复 AI 上下文。
     /// </summary>
     [RelayCommand]
-    private async Task SendAsync()
+    private Task SendAsync() => SendInternalAsync(InputText?.Trim(), addUserMessage: true, clearInput: true);
+
+    /// <summary>
+    /// 核心发送逻辑。支持内部调用跳过添加用户消息（编辑/重新生成场景）。
+    /// </summary>
+    private async Task SendInternalAsync(string? text, bool addUserMessage, bool clearInput)
     {
-        var text = InputText?.Trim();
         if (string.IsNullOrWhiteSpace(text)) return;
 
         // 输入长度限制：超长截断并提示
@@ -178,11 +232,14 @@ public partial class ChatViewModel : ObservableObject
         }
         _historyIndex = _inputHistory.Count;
 
-        // 崩溃恢复：先写入草稿文件，成功后再删除
+        // 崩溃恢复：先写入草稿文件，成功后再删除（仅普通发送时）
         var draftFilePath = System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "PersonalAssistant", "draft.txt");
-        try { System.IO.File.WriteAllText(draftFilePath, text); } catch { }
+        if (addUserMessage)
+        {
+            try { System.IO.File.WriteAllText(draftFilePath, text); } catch { }
+        }
 
         // 创建取消令牌
         _currentCts?.Cancel();
@@ -190,12 +247,13 @@ public partial class ChatViewModel : ObservableObject
         _currentCts = new CancellationTokenSource();
         var ct = _currentCts.Token;
 
-        InputText = string.Empty;
+        if (clearInput)
+            InputText = string.Empty;
 
         // /clear — 本地处理，零 token
         if (text.Equals("/clear", StringComparison.OrdinalIgnoreCase))
         {
-            _currentCts.Dispose();
+            _currentCts?.Dispose();
             _currentCts = null;
             await _chatAgent.ClearHistoryAsync();
             Messages.Clear();
@@ -204,13 +262,55 @@ public partial class ChatViewModel : ObservableObject
             return;
         }
 
-        // Add user message
-        Messages.Add(new ChatMessage
+        // 本地命令拦截 — 确定性系统指令不走 AI，零 token
+        var localResult = _localCmd.TryIntercept(text);
+        if (localResult is not null)
         {
-            Role = MessageRole.User,
-            Content = text,
-            Timestamp = DateTime.Now
-        });
+            Messages.Add(new ChatMessage
+            {
+                Role = MessageRole.System,
+                Content = localResult,
+                Timestamp = DateTime.Now
+            });
+            _currentCts?.Dispose();
+            _currentCts = null;
+            _historyService.Save(Messages);
+            return;
+        }
+
+        // 本地计算/日期拦截 — 纯算式、日期查询不走 AI，零 token
+        var computeResult = TryComputeLocally(text);
+        if (computeResult is not null)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = MessageRole.Assistant,
+                Content = computeResult,
+                Timestamp = DateTime.Now,
+                ConversationId = _convStorage.ActiveConversationId
+            });
+            _currentCts?.Dispose();
+            _currentCts = null;
+            _historyService.Save(Messages);
+            return;
+        }
+
+        // 捕获当前待发的图片数据
+        var imageBytes = PendingImageBytes;
+        PendingImageBytes = null;
+
+        // Add user message with optional image (skip for edit/regenerate)
+        if (addUserMessage)
+        {
+            Messages.Add(new ChatMessage
+            {
+                Role = MessageRole.User,
+                Content = text,
+                Timestamp = DateTime.Now,
+                ConversationId = _convStorage.ActiveConversationId,
+                ImageBytes = imageBytes
+            });
+        }
 
         IsWorking = true;
         ShowInfoBar = false;
@@ -223,7 +323,8 @@ public partial class ChatViewModel : ObservableObject
         {
             Role = MessageRole.Assistant,
             Content = "",
-            Timestamp = DateTime.Now
+            Timestamp = DateTime.Now,
+            ConversationId = _convStorage.ActiveConversationId
         };
         Messages.Add(assistantMsg);
 
@@ -284,7 +385,7 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             var fullContent = "";
-            await foreach (var token in _chatAgent.SendMessageStreaming(text, ct))
+            await foreach (var token in _chatAgent.SendMessageStreaming(text, imageBytes, ct))
             {
                 fullContent += token;
                 assistantMsg.Content = fullContent;
@@ -302,6 +403,15 @@ public partial class ChatViewModel : ObservableObject
 
             // 记录远程 API 用量
             _tokenUsage.RecordUsage(text, fullContent, true);
+
+            // 设置当前 Assistant 消息可重新生成
+            assistantMsg.CanRegenerate = true;
+            // 清除之前 Assistant 消息的可重新生成标记
+            foreach (var m in Messages)
+            {
+                if (m != assistantMsg && m.Role == MessageRole.Assistant)
+                    m.CanRegenerate = false;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -331,12 +441,15 @@ public partial class ChatViewModel : ObservableObject
             _historyService.Save(Messages);
 
             // 成功完成：删除草稿文件
-            try
+            if (addUserMessage)
             {
-                if (System.IO.File.Exists(draftFilePath))
-                    System.IO.File.Delete(draftFilePath);
+                try
+                {
+                    if (System.IO.File.Exists(draftFilePath))
+                        System.IO.File.Delete(draftFilePath);
+                }
+                catch (Exception ex) { Log.Debug(ex, "[ChatViewModel] 草稿清理失败"); }
             }
-            catch (Exception ex) { Log.Debug(ex, "[ChatViewModel] 草稿清理失败"); }
 
             // 递增摘要计数器并检查是否需要触发摘要
             _chatAgent.IncrementSummarizerRound();
@@ -423,6 +536,230 @@ public partial class ChatViewModel : ObservableObject
         _currentCts?.Cancel();
     }
 
+    /// <summary>切换侧边栏展开/折叠</summary>
+    [RelayCommand]
+    private void ToggleSidebar() => SidebarExpanded = !SidebarExpanded;
+
+    // ──── 消息编辑 ────
+
+    /// <summary>开始编辑用户消息</summary>
+    [RelayCommand]
+    private void StartEditMessage(ChatMessage? message)
+    {
+        if (message is null || message.Role != MessageRole.User || IsWorking) return;
+        message.IsEditing = true;
+        message.EditText = message.Content;
+    }
+
+    /// <summary>保存编辑并重新发送</summary>
+    [RelayCommand]
+    private async Task SaveEditMessage(ChatMessage? message)
+    {
+        if (message is null || string.IsNullOrWhiteSpace(message.EditText)) return;
+
+        var editedText = message.EditText.Trim();
+        message.Content = editedText;
+        message.IsEditing = false;
+        message.EditText = null;
+
+        // 找到该消息在列表中的位置，移除其后所有消息
+        var idx = Messages.IndexOf(message);
+        if (idx < 0) return;
+
+        // 移除编辑消息之后的所有消息
+        while (Messages.Count > idx + 1)
+            Messages.RemoveAt(Messages.Count - 1);
+
+        // 清空 MAF 会话历史
+        await _chatAgent.ClearHistoryAsync();
+
+        // 重新发送编辑后的文本（不添加重复用户消息）
+        _historyService.Save(Messages);
+        await SendInternalAsync(editedText, addUserMessage: false, clearInput: false);
+    }
+
+    /// <summary>取消编辑</summary>
+    [RelayCommand]
+    private void CancelEditMessage(ChatMessage? message)
+    {
+        if (message is null) return;
+        message.IsEditing = false;
+        message.EditText = null;
+    }
+
+    // ──── 重新生成回复 ────
+
+    /// <summary>重新生成最后一条 Assistant 回复</summary>
+    [RelayCommand]
+    private async Task RegenerateLastResponse()
+    {
+        if (IsWorking) return;
+
+        // 找最后一条 Assistant 消息
+        var lastAssistant = Messages.LastOrDefault(m => m.Role == MessageRole.Assistant);
+        if (lastAssistant is null) return;
+
+        // 找用户消息（Assistant 前面一条）
+        var asstIdx = Messages.IndexOf(lastAssistant);
+        if (asstIdx <= 0) return;
+
+        var userMsg = Messages[asstIdx - 1];
+        if (userMsg.Role != MessageRole.User) return;
+
+        // 移除 Assistant 消息
+        Messages.RemoveAt(asstIdx);
+
+        // 清空 MAF Session
+        await _chatAgent.ClearHistoryAsync();
+
+        _historyService.Save(Messages);
+
+        // 重新发送（不添加重复用户消息）
+        await SendInternalAsync(userMsg.Content, addUserMessage: false, clearInput: false);
+    }
+
+    // ──── 图片输入 ────
+
+    /// <summary>从剪贴板粘贴图片（Ctrl+V 或按钮）</summary>
+    [RelayCommand]
+    private void PasteImage()
+    {
+        if (IsWorking) return;
+
+        if (!System.Windows.Clipboard.ContainsImage())
+        {
+            // 非图片剪贴板：正常处理文本粘贴（由 ChatView 处理）
+            return;
+        }
+
+        try
+        {
+            var bitmap = System.Windows.Clipboard.GetImage();
+            if (bitmap is null) return;
+
+            // 缩放大图（限制最大尺寸 1024x1024）
+            var maxDim = 1024;
+            if (bitmap.PixelWidth > maxDim || bitmap.PixelHeight > maxDim)
+            {
+                var scale = Math.Min((double)maxDim / bitmap.PixelWidth, (double)maxDim / bitmap.PixelHeight);
+                var w = (int)(bitmap.PixelWidth * scale);
+                var h = (int)(bitmap.PixelHeight * scale);
+                bitmap = new System.Windows.Media.Imaging.TransformedBitmap(
+                    bitmap, new System.Windows.Media.ScaleTransform(scale, scale));
+            }
+
+            // 编码为 PNG 字节
+            var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            using var ms = new System.IO.MemoryStream();
+            encoder.Save(ms);
+            var bytes = ms.ToArray();
+
+            // 大小限制 20MB
+            if (bytes.Length > 20 * 1024 * 1024)
+            {
+                Messages.Add(new ChatMessage
+                {
+                    Role = MessageRole.System,
+                    Content = "[系统] 图片过大（超过 20MB），请缩小后重试",
+                    Timestamp = DateTime.Now
+                });
+                return;
+            }
+
+            PendingImageBytes = bytes;
+            Messages.Add(new ChatMessage
+            {
+                Role = MessageRole.System,
+                Content = "[系统] 图片已粘贴，输入文本后发送",
+                Timestamp = DateTime.Now
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "[ChatViewModel] 粘贴图片失败");
+        }
+    }
+
+    /// <summary>清除待发送的图片</summary>
+    [RelayCommand]
+    private void ClearPendingImage()
+    {
+        PendingImageBytes = null;
+    }
+
+    // ──── 文件拖拽 ────
+
+    /// <summary>处理拖放的文件</summary>
+    public void HandleDroppedFiles(string[] files)
+    {
+        if (IsWorking || files.Length == 0) return;
+
+        List<string> parts = new();
+        foreach (var file in files)
+        {
+            var ext = System.IO.Path.GetExtension(file).ToLowerInvariant();
+            if (ext is ".png" or ".jpg" or ".jpeg" or ".gif" or ".bmp" or ".webp")
+            {
+                // 图片文件：读取字节并设置为待发图片
+                try
+                {
+                    var bytes = System.IO.File.ReadAllBytes(file);
+                    if (bytes.Length > 20 * 1024 * 1024)
+                    {
+                        parts.Add($"[图片过大跳过: {System.IO.Path.GetFileName(file)}]");
+                        continue;
+                    }
+                    PendingImageBytes = bytes;
+                    parts.Add($"[图片: {System.IO.Path.GetFileName(file)}]");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[ChatViewModel] 读取拖放图片失败: {Path}", file);
+                }
+            }
+            else if (ext is ".txt" or ".cs" or ".json" or ".xml" or ".md" or ".log" or ".py" or ".js" or ".ts")
+            {
+                // 文本文件：读取前 10KB 填入输入框
+                try
+                {
+                    var content = System.IO.File.ReadAllText(file);
+                    if (content.Length > 10 * 1024)
+                        content = content[..(10 * 1024)] + "\n...[文件过长已截断]";
+                    parts.Add($"\n--- 文件: {System.IO.Path.GetFileName(file)} ---\n{content}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "[ChatViewModel] 读取拖放文件失败: {Path}", file);
+                }
+            }
+            else if (ext is ".pdf" or ".docx" or ".doc" or ".xlsx" or ".xls")
+            {
+                // Office/PDF 文件：预填 read_file 指令
+                parts.Add($"\n[拖入文件: {System.IO.Path.GetFileName(file)}]\n");
+                InputText += $"请读取并分析这个文件: {file}";
+            }
+            else
+            {
+                // 其他文件：填路径
+                parts.Add($"\n[文件: {System.IO.Path.GetFileName(file)}]");
+                if (string.IsNullOrWhiteSpace(InputText))
+                    InputText += $"我拖入了这个文件: {file}";
+            }
+        }
+
+        if (parts.Count > 0)
+        {
+            var text = string.Join("\n", parts);
+            if (!string.IsNullOrWhiteSpace(InputText))
+                InputText += text;
+            else if (parts.Any(p => p.StartsWith("[图片:")))
+                InputText += "请描述这张图片的内容";
+            else
+                InputText = text;
+        }
+    }
+
     /// <summary>
     /// 向上/向下箭头导航输入历史。
     /// 返回应填入输入框的历史文本，null 表示无历史。
@@ -480,5 +817,92 @@ public partial class ChatViewModel : ObservableObject
     {
         while (Messages.Count > MaxDisplayMessages)
             Messages.RemoveAt(0);
+    }
+
+    /// <summary>
+    /// 尝试本地计算/日期查询。返回 null 表示不是可本地处理的问题，
+    /// 非 null 字符串直接展示给用户。
+    /// </summary>
+    private static string? TryComputeLocally(string input)
+    {
+        var text = input.Trim();
+
+        // ──── 日期/时间查询 ────
+        if (IsDateQuery(text))
+            return AnswerDateQuery(text);
+
+        // ──── 纯数学表达式 ────
+        if (ClipboardToolHelper.IsMathExpression(text))
+            return ClipboardToolHelper.EvaluateMath(text);
+
+        // ──── 带"计算"前缀的表达式 ────
+        var calcPrefixes = new[] { "计算 ", "计算:", "算 ", "算一下 ", "等于多少 " };
+        foreach (var prefix in calcPrefixes)
+        {
+            if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                var expr = text[prefix.Length..].Trim();
+                if (ClipboardToolHelper.IsMathExpression(expr))
+                    return $"{expr} = {EvaluateSimple(expr)}";
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsDateQuery(string text)
+    {
+        var t = text.ToLowerInvariant().Replace("？", "").Replace("?", "").Trim();
+        return t is "今天几号" or "今天日期" or "今天星期几" or "今天周几"
+            or "现在几点" or "当前时间" or "几点了" or "现在时间"
+            or "今天" or "日期" or "时间" or "星期几" or "周几"
+            or "今年是哪年" or "今年" or "几月" or "几号";
+    }
+
+    private static string AnswerDateQuery(string text)
+    {
+        var now = DateTime.Now;
+        var t = text.ToLowerInvariant().Replace("？", "").Replace("?", "").Trim();
+
+        if (t.Contains("时间") || t.Contains("几点"))
+            return $"现在是 {now:yyyy年M月d日 HH:mm:ss}";
+        if (t.Contains("星期几") || t.Contains("周几"))
+            return $"今天是 {now:yyyy年M月d日}，星期{GetChineseWeekday(now.DayOfWeek)}";
+        if (t.Contains("哪年"))
+            return $"今年是 {now.Year} 年";
+        if (t.Contains("几月"))
+            return $"现在是 {now.Month} 月";
+        if (t.Contains("几号") || t.Contains("日期"))
+            return $"今天是 {now:yyyy年M月d日}，星期{GetChineseWeekday(now.DayOfWeek)}";
+
+        // 默认：完整日期时间
+        return $"今天是 {now:yyyy年M月d日}，星期{GetChineseWeekday(now.DayOfWeek)}，{now:HH:mm:ss}";
+    }
+
+    private static string GetChineseWeekday(DayOfWeek day) => day switch
+    {
+        DayOfWeek.Monday => "一",
+        DayOfWeek.Tuesday => "二",
+        DayOfWeek.Wednesday => "三",
+        DayOfWeek.Thursday => "四",
+        DayOfWeek.Friday => "五",
+        DayOfWeek.Saturday => "六",
+        DayOfWeek.Sunday => "日",
+        _ => "?"
+    };
+
+    private static string EvaluateSimple(string expr)
+    {
+        try
+        {
+            var cleaned = expr.Trim()
+                .Replace('×', '*').Replace('÷', '/').Replace("×", "*").Replace("÷", "/")
+                .Replace("π", Math.PI.ToString()).Replace("pi", Math.PI.ToString())
+                .Replace("Pi", Math.PI.ToString());
+
+            var result = new System.Data.DataTable().Compute(cleaned, null);
+            return result.ToString() ?? "计算错误";
+        }
+        catch { return "无法计算"; }
     }
 }

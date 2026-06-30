@@ -5,6 +5,20 @@
 > 基于 Microsoft Agent Framework (MAF) 实现 AI 对话、工具调用循环和流式输出。
 > 插件化架构：工具方法自包含在 Plugins/ 目录，通过 IToolPlugin 接口热插拔。
 
+## 项目核心目的与价值
+
+> **最大化利用 Windows 系统资源，实现 AI 驱动的桌面自动化，同时通过本地模型路由和代码逻辑将 Token 消耗降至最低。**
+
+| 核心价值 | 说明 |
+|----------|------|
+| **Windows 深度集成** | 不追求跨平台，聚焦 Windows 原生能力（Win32 API、窗口操控、进程管理、剪贴板、热键、开机自启），将系统资源利用到极致 |
+| **AI 自动化（能动手，不只是聊天）** | AI 可直接操作系统：读写文件、执行 Shell、操控窗口、发送按键、启动程序、搜索文档——是 "AI Agent" 而非 "AI Chatbot" |
+| **Token 消耗最小化** | 3 层模型路由（简单→本地零 token、复杂→远程）、工作流本地回放、代码逻辑优先（能用代码就不用 AI），将 API 成本压到最低 |
+| **离线可用** | 本地 LLM（Qwen 0.5B）保证断网时基础功能不中断，数据不出本机 |
+| **可扩展** | 单文件 .cs 插件 + GitHub Gists 社区市场，用户可按需扩展 AI 能力 |
+
+**设计决策原则：** 任何功能的设计与实现，优先服务于以上核心价值。不因跨平台兼容性牺牲 Windows 深度能力，不因追逐新技术而增加 Token 消耗。
+
 ## 维护规则（强制）
 
 **对项目的任何代码改动（新增/删除文件、修改功能、变更架构、调整配置），必须在提交前同步更新本 CLAUDE.md 文件中对应的章节。** 模板文件 `docs/template/CLAUDE_TEMPLATE.md` 也需要同步更新。
@@ -165,12 +179,16 @@ public sealed class PluginToolDefinition
 ## 功能模块
 
 ### Chat
-- **ChatAgentService**：~260 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(ct)` 流式输出和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose）。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。离线探测（`ProbeNetworkAsync()`，3s 超时 HEAD 请求）+ `IsOffline` 属性。对话摘要轮次计数（`IncrementSummarizerRound()` / `ShouldSummarize`）+ 摘要提示词片段注入。`SemaphoreSlim(1,1)` 防止 `SendMessageStreaming` 和 `ClearHistoryAsync` 并发执行，`OnClearChat` 事件通过 async void 等待锁释放后执行。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
-- **ChatSystemPrompt**：系统提示词构建器（从 ChatAgentService.Prompt.cs 提取）。基础提示词 + 聚合所有插件的提示词片段 + 对话摘要片段。线程安全锁保护缓存（双重检查锁定），插件片段不变则复用（零分配）。
-- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话历史持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。离线模式：网络不可用时强制走本地模型。Token 用量显示（底部状态栏 `TokenDisplay`，格式 "本轮: 150 tokens | 本月: 12.3K tokens"）。对话摘要集成：超过 30 轮自动触发本地摘要生成，修剪旧消息并注入摘要。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService + TokenUsageService + ConversationSummarizer。
-- **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。
-- **ChatView**：WPF 聊天界面（深色/浅色主题切换，Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。Markdig.Wpf 解析 Markdown → FlowDocument，AI 回复支持代码块语法高亮、列表、表格、加粗等。支持 Up/Down 箭头导航输入历史。所有颜色使用 DynamicResource 主题系统。
-- **ChatHistoryService**：对话历史持久化到 `%APPDATA%\PersonalAssistant\chat_history.json`（仅 UI 恢复，不回放 AI 会话），跳过 System 角色消息，最多 200 条。加载失败时记录 warning 日志并降级为空列表
+- **ChatAgentService**：~300 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(message, imageBytes?, ct)` 流式输出（含可选图片附件，通过 MEAI DataContent 传递多模态消息）和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose），以及 `SwitchConversationAsync()` 切换对话时重建 MAF Session。内建 PatternDetector 模式检测，通过 `CollectPatternSuggestion()` 返回建议。离线探测（`ProbeNetworkAsync()`，3s 超时 HEAD 请求）+ `IsOffline` 属性。对话摘要轮次计数（`IncrementSummarizerRound()` / `ShouldSummarize`）+ 摘要提示词片段注入。`SemaphoreSlim(1,1)` 防止 `SendMessageStreaming` 和 `ClearHistoryAsync` 并发执行，`OnClearChat` 事件通过 async void 等待锁释放后执行。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
+- **ChatSystemPrompt**：系统提示词构建器。基础提示词 + 自定义系统提示词（来自 UserSettings，优先于默认） + 聚合所有插件的提示词片段 + 对话摘要片段。线程安全锁保护缓存（双重检查锁定），cache键包含 pluginFragments + customPrompt，不变则复用（零分配）。
+- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、对话持久化（自动保存/恢复）、模式建议展示、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。多对话管理（引用 ConversationListViewModel，对话切换时保存/加载/清空 Messages）。消息编辑（StartEditMessage/SaveEditMessage/CancelEditMessage 命令：编辑后修剪后续消息 → 重建 Session → 重新发送）。重新生成回复（RegenerateLastResponse 命令：移除最后 Assistant → 复用编辑路径重发）。图片粘贴（PasteImageCommand：Clipboard.ContainsImage() → 缩放大图 → PendingImageBytes）。文件拖拽处理（HandleDroppedFiles：文本文件读 10KB 粘贴，PDF/Office 预填指令，图片路由到粘贴）。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。离线模式：网络不可用时强制走本地模型。Token 用量显示（底部状态栏 `TokenDisplay`）。对话摘要集成。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService + TokenUsageService + ConversationSummarizer + ConversationStorageService + ConversationListViewModel + LocalCommandInterceptor。
+- **LocalCommandInterceptor**：本地命令拦截器。40+ 条确定性系统指令（打开任务管理器/计算器/记事本/下载文件夹/设置、锁屏、关机重启、清空回收站等）在发送到 AI 前被正则+字典匹配拦截，本地 `Process.Start` 直接执行。`TryIntercept(input)` 返回 null（不是已知命令）或执行结果字符串。资源成本：仅拦截匹配时 ~1ms，空闲时零开销。
+- **ChatViewModel 内建本地拦截**：`TryComputeLocally(input)` 在 SendInternalAsync 中位于 LocalCommandInterceptor 之后、AI 路由之前。处理纯数学表达式（DataTable.Compute）、日期时间查询（"今天几号""现在几点""今天星期几"等）。零 token 消耗。
+- **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。新增字段：ConversationId（多对话支持）、ImagePath/ImageBytes/HasImage（图片附件支持）、IsEditing/EditText（消息编辑支持）、CanRegenerate（重新生成支持，JsonIgnore）。
+- **ChatView**：WPF 聊天界面（深色/浅色主题切换，Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。左侧 200px 可折叠 Sidebar（对话列表 + 搜索框 + 新建按钮）。消息气泡支持：图片缩略图（MaxWidth=300, MaxHeight=200）、编辑按钮（hover 显示，切换 TextBox）、重新生成按钮（最后一条 Assistant 消息）。粘贴图片按钮 + 待发图片预览。支持文件拖放（AllowDrop=true，DragEnter/Drop 处理）。Markdig.Wpf 解析 Markdown → FlowDocument。支持 Up/Down 箭头导航输入历史。所有颜色使用 DynamicResource 主题系统。
+- **ChatHistoryService**：委托给 ConversationStorageService，接口不变（Load/Save/HasHistory）。Save 保存到当前活跃对话文件，Load 从活跃对话加载。
+- **ConversationStorageService**：多对话文件 I/O 服务（`conversations/index.json` + `{guid}.json`）。Index CRUD（创建/重命名/删除/更新元数据），消息 I/O（独立文件保存/加载），全文搜索（`SearchAllConversations(query)`，string.Contains，不区分大小写），自动迁移旧 `chat_history.json` 到默认对话。资源成本：仅读写时触发磁盘 I/O（按需消耗）。
+- **ConversationListViewModel**：对话列表 VM（ObservableCollection + 创建/重命名/删除/切换命令）。搜索防抖（300ms DispatcherTimer），`ConversationSwitched` 事件通知 ChatViewModel。新建对话自动标题（取第一条用户消息前 20 字）。依赖 ConversationStorageService。
 - **LocalModelService**：封装 LLamaSharp 加载 Qwen2.5-0.5B-Instruct GGUF 本地模型。`InferAsync(prompt, maxTokens?, systemPrompt?, ct)` 提供单轮无状态推理。延迟初始化（首次调用才加载），`SemaphoreSlim(1,1)` 保证线程安全，`IDisposable` 释放 `LLamaWeights`/`LLamaContext`。模型获取 4 层优先级：%APPDATA% → 打包目录 → exe 旁边目录（单文件发布）→ 多镜像自动下载（model_sources.json 配置，带进度报告）。公开属性：`ModelDirectory`, `ModelFilePath`, `ModelFileExists`, `ModelFileSize`。公开方法：`DownloadModelAsync(progress, ct)` 强制重新下载，`UploadModelAsync(sourcePath, progress)` 复制用户 .gguf 到模型目录。资源成本：首次加载 ~550MB 内存（模型 + KV Cache），空闲时仅内存驻留，无 CPU 消耗。
 - **ModelRoutingService**：3 层漏斗精准模型路由。L1 快速预判（极短/明显需工具）→ L2 本地 Qwen 0.5B 语义意图分类（conversation/question → 本地 / action/creation/system → 远程）→ L3 语义质量评估（不合格自动回退远程）。本地分类阶段 MaxTokens=10，约 1-2s。资源成本：按需消耗，空闲时零开销。
 - **TokenUsageService**：Token 用量统计（~4 chars/token 估算）。记录每轮输入/输出的 token 消耗，按月分桶，异步持久化到 `%APPDATA%\PersonalAssistant\token_usage.json`。自动修剪 12 个月前的旧数据。资源成本：仅记录和写盘时消耗，空闲时零开销。
@@ -217,7 +235,9 @@ public sealed class PluginToolDefinition
 
 ### Clipboard（智能剪贴板）
 - **ClipboardMonitor**：Win32 `AddClipboardFormatListener` 监听剪贴板变化（OS 消息驱动，零轮询）。200ms 防抖，COMException 容错（剪贴板被其他进程锁定时静默跳过）。本地启发式分类算法：URL（正则匹配协议头）→ Path（盘符+路径验证）→ Number（纯数字/逗号/点号）→ Code（符号密度>12%且≥3种符号族）→ Text（含字母）。`Initialize(IntPtr hwnd)` 两阶段初始化（构造参数空 → OnSourceInitialized 挂载 HWND）。`LatestClipboardText`（截断 5K）, `LatestClipboardType`, `SuppressNextUpdate()`（避免写剪贴板反馈循环）。`ClipboardChanged` 事件（后台线程触发，订阅者需自行封送 UI）。IDisposable：RemoveClipboardFormatListener + 移除 Hook。资源成本：OS 消息驱动，空闲时零 CPU，~200 bytes 常驻内存。
-- **ContextMenuPopup**：智能剪贴板上下文菜单弹窗（WindowStyle=None, AllowsTransparency=True, Topmost=True, Width=240）。根据内容类型动态展示操作按钮（纯代码逻辑，零 token）。本地操作（在浏览器打开、打开文件、打开文件夹）用 Process.Start 直接执行；AI 操作（解释代码、翻译、总结等）预填 MainWindow 输入框。底部"桌面小组件"按钮提供 WidgetPanel 入口（当剪贴板有内容时右键先弹 ContextMenuPopup，可通过此按钮打开面板）。PositionNear 定位到悬浮窗左侧。OnDeactivated/Escape 自动关闭。所有颜色使用 DynamicResource 主题适配。资源成本：仅在显示时消耗（窗口渲染），隐藏时零开销。
+- **ClipboardToolHelper**：剪贴板工具方法静态辅助类。提供：文件路径操作（复制完整路径/文件名无扩展名、在终端打开、在资源管理器打开）、文本统计（字符/单词/行/字节数）、Base64 编解码、JSON 格式化/压缩、时间戳转换（Unix 秒/毫秒 → 本地时间）、颜色检测与解析（HEX/RGB）、数学表达式求值（DataTable.Compute）、剪贴板图片 OCR（Windows 内置引擎，零 token）。全部零 token 纯本地执行。资源成本：仅调用时消耗 CPU，空闲时零开销。
+- **ContextMenuPopup**：智能剪贴板上下文菜单弹窗（WindowStyle=None, AllowsTransparency=True, Topmost=True, Width=240）。根据内容类型动态展示操作按钮（纯代码逻辑，零 token）。子类型自动检测：Base64（解码/复制）、JSON（格式化/压缩/复制）、时间戳（转换）、颜色值（复制 HEX/RGB + 色块预览）、数学表达式（计算/复制结果）、文件路径（打开/复制完整路径/复制文件名/在终端打开/打开所在目录）。URL类型：在浏览器打开、复制链接、生成二维码（在线API）、总结/翻译网页。Code类型：解释/优化/查找错误 + 文本统计。Text类型：文本统计、Base64编码、总结/翻译/搜索。Number类型：大写转换、汇率换算。所有类型通用：颜色预览方块（HEX/RGB时显示实色块）、内联结果面板（文本统计/Base64解码/JSON格式化等结果在弹窗内展示，不关闭弹窗）。底部按钮：快速便签（StickyNoteWindow）、OCR识别（剪贴板图片 → Windows 内置 OCR → 显示结果并复制）、桌面小组件（WidgetPanel入口）。PositionNear 定位到悬浮窗左侧。OnDeactivated/Escape 自动关闭。所有颜色使用 DynamicResource 主题适配。资源成本：仅在显示时消耗（窗口渲染），隐藏时零开销。
+- **StickyNoteWindow**：快速便签窗口（无边框、置顶、可拖动、黄色便签风格）。文本框自动保存到 `%APPDATA%\PersonalAssistant\sticky_note.txt`。清空按钮 + 关闭按钮。Escape 键关闭。资源成本：仅在显示时消耗（窗口渲染），隐藏时零开销。
 
 ### KnowledgeBase（知识库搜索）
 - **KnowledgeBaseService**：全文检索引擎，支持 .md/.txt/.pdf 文件。中文分词（逐字）+ 英文分词（空格），TF-IDF + 余弦相似度排序，Top-K 结果返回。索引持久化到 `%APPDATA%\PersonalAssistant\knowledge_base\index.json`。`IndexDirectoryAsync(dir, progress?)` 异步索引目录，`Search(query, topK=5)` 搜索。资源成本：仅索引和搜索时消耗 CPU，空闲时零开销。
@@ -301,11 +321,11 @@ public sealed class PluginToolDefinition
 - **模型管理**：设置窗口新增模型管理区域，显示模型状态（就绪/未安装 + 文件大小），支持打开模型目录、上传本地 .gguf 文件、从镜像源下载默认模型。下载/上传带进度显示，窗口关闭时自动取消进行中的操作。
 - 配置保存在 `%APPDATA%\PersonalAssistant\settings.json`
 - 从托盘右键菜单"设置"打开
-- **配置项**：API Key（显示/隐藏切换）、提供商预设（DeepSeek/Zhipu GLM/自定义）、模型名称、API 端点、连接测试、开机自启动、深色/浅色主题、快捷键组合（HotkeyCaptureBox 控件）、知识库目录选择 + 一键索引（带进度）
+- **配置项**：API Key（显示/隐藏切换）、提供商预设（DeepSeek/Zhipu GLM/自定义）、模型名称、API 端点、连接测试、开机自启动、自定义系统提示词（多行输入，留空使用默认）、深色/浅色主题、快捷键组合（HotkeyCaptureBox 控件）、知识库目录选择 + 一键索引（带进度）
 
 ### Tray
 - **TrayService**：系统托盘图标（代码绘制蓝紫渐变 "AI" 图标）+ 右键菜单（显示主窗口、设置、插件管理、导出对话、通知历史、切换主题、退出）。通知历史保留最近 50 条（`ObservableCollection<NotificationRecord>`），气泡通知自动记录。`ShowNotification(title, message)` 统一通知入口，>256 字符自动截断
-- **UserSettingsService**：管理用户级配置（API Key/Model/Endpoint/AutoStart/HotkeyModifiers/HotkeyKey/IsDarkTheme），含注册表操作。配置文件损坏时记录警告并降级为默认值。新增快捷键配置属性（HotkeyModifiers, HotkeyKey, SelectTextModifiers, SelectTextKey）和主题属性（IsDarkTheme）
+- **UserSettingsService**：管理用户级配置（API Key/Model/Endpoint/AutoStart/HotkeyModifiers/HotkeyKey/CustomSystemPrompt/IsDarkTheme），含注册表操作。配置文件损坏时记录警告并降级为默认值。新增快捷键配置属性（HotkeyModifiers, HotkeyKey, SelectTextModifiers, SelectTextKey）、主题属性（IsDarkTheme）和自定义系统提示词属性（CustomSystemPrompt，null=使用默认）
 
 ## 性能约束 + 低功耗设计（强制）
 
@@ -390,6 +410,9 @@ public sealed class PluginToolDefinition
 - 知识库索引：保存在 `%APPDATA%\PersonalAssistant\knowledge_base\index.json`（不入库）
 - 小组件配置：保存在 `%APPDATA%\PersonalAssistant\widget_config.json`（不入库）
 - 待办事项：保存在 `%APPDATA%\PersonalAssistant\todos.json`（不入库）
+- 快速便签：保存在 `%APPDATA%\PersonalAssistant\sticky_note.txt`（不入库）
+- 对话数据：保存在 `%APPDATA%\PersonalAssistant\conversations\` 目录（index.json + {guid}.json，不入库）
+- 对话图片：保存在 `%APPDATA%\PersonalAssistant\conversations\{guid}_images\` 目录（不入库）
 
 ## 启动流程
 
@@ -426,15 +449,23 @@ PersonalAssistant/
 │       └── PluginSharedState.cs         # 插件间共享状态
 ├── Features/
 │   ├── Chat/
-│   │   ├── Models/                      # ChatMessage, ChatSettings, NotificationRecord, TokenUsageStats, 枚举
+│   │   ├── Models/                      # ChatMessage(CnvId/ImgPath/ImgBytes/HasImage/IsEditing/EditText/CanRegenerate),
+│   │   │                                # ChatSettings, NotificationRecord, TokenUsageStats,
+│   │   │                                # ConversationInfo(Id/Title/CreatedAt/UpdatedAt/MessageCount),
+│   │   │                                # ConversationSearchResult(ConvId/Title/Excerpt/MessageIndex),
+│   │   │                                # ImageAttachment(Bytes/MediaType/Width/Height), 枚举
 │   │   ├── Services/
-│   │   │   ├── ChatAgentService.cs      # MAF 封装 (~160行) + ChatSystemPrompt.cs
+│   │   │   ├── ChatAgentService.cs      # MAF 封装 (~300行) + ChatSystemPrompt.cs
 │   │   │   ├── LocalModelService.cs      # 本地 LLM 推理（4层模型路径 + 上传/下载）
+│   │   │   ├── LocalCommandInterceptor.cs # 本地命令拦截器（40+ 条确定性系统指令，零 token）
 │   │   │   ├── ModelRoutingService.cs    # 自动模型路由（本地/远程）
 │   │   │   ├── TokenUsageService.cs      # Token 用量统计 + 持久化
 │   │   │   ├── ConversationSummarizer.cs # 对话摘要生成（本地 LLM）
+│   │   │   ├── ConversationStorageService.cs # 多对话 I/O（index.json + {id}.json，搜索，迁移）
 │   │   │   └── ChatExportService.cs      # 对话导出（Markdown）
-│   │   ├── ViewModels/ChatViewModel.cs
+│   │   ├── ViewModels/
+│   │   │   ├── ChatViewModel.cs          # 聊天主 VM（+ 编辑/重新生成/图片粘贴/文件拖拽）
+│   │   │   └── ConversationListViewModel.cs # 对话列表 VM（创建/重命名/删除/切换/搜索防抖）
 │   │   └── Views/ChatView.xaml/.cs
 │   ├── Plugins/                         # 自包含插件模块 (8个) + 管理/市场窗口
 │   │   ├── SystemTools/                 # 13 工具: read_file, write_file, ...
@@ -474,9 +505,11 @@ PersonalAssistant/
 │   │   ├── TodoWidget.xaml/.cs          # 待办小组件
 │   │   └── SystemStatusWidget.xaml/.cs  # 系统状态小组件
 │   ├── Clipboard/
-│   │   ├── Models/                      # ClipboardContentType, ClipboardSuggestion
-│   │   ├── Services/                    # ClipboardMonitor (Win32 剪贴板监听 + 分类)
-│   │   └── Views/                       # ContextMenuPopup (智能上下文菜单弹窗)
+│   │   ├── Models/                      # ClipboardContentType, ClipboardSuggestion(InlineResult)
+│   │   ├── Services/                    # ClipboardMonitor (Win32 剪贴板监听 + 分类),
+│   │   │                                # ClipboardToolHelper (路径/文本/Base64/JSON/时间戳/颜色/数学/OCR静态工具)
+│   │   └── Views/                       # ContextMenuPopup (增强:子类型检测+内联结果+颜色预览+OCR+便签),
+│   │                                    # StickyNoteWindow (快速便签窗口，黄色便签风格，自动保存)
 │   ├── Notifications/
 │   │   ├── NotificationHistoryWindow.xaml/.cs  # 通知历史窗口
 │   ├── Mascot/
@@ -486,9 +519,10 @@ PersonalAssistant/
 │       ├── SettingsWindow.xaml          # AI 配置 + 主题 + 快捷键 + 知识库 + 模型管理 + 开机自启动
 │       └── SettingsWindow.xaml.cs
 ├── Infrastructure/Common/
-│   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, 通用转换器
+│   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, BytesToImageConverter,
+│   │                                    # 通用转换器（BoolToVisibility, InverseBool, MarkdownToFlowDocument）
 │   ├── Controls/                        # HotkeyCaptureBox (快捷键捕获控件)
-│   ├── Services/                        # TrayService, UserSettingsService, ChatHistoryService,
+│   ├── Services/                        # TrayService, UserSettingsService(CustomSystemPrompt), ChatHistoryService(委托),
 │   │                                    # PluginStateService, ThemeService
 │   └── Themes/                          # ThemeColors.xaml (语义色键), DarkTheme.xaml, LightTheme.xaml
 ├── docs/

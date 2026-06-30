@@ -35,12 +35,52 @@
                 CornerRadius="6"
                 Padding="8,6"
                 Margin="0,0,0,10">
-                <TextBlock x:Name="ContentPreview"
-                           FontSize="11"
-                           Foreground="{DynamicResource Brush.ForegroundTertiary}"
-                           TextWrapping="Wrap"
-                           TextTrimming="CharacterEllipsis"
-                           MaxHeight="60" />
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="ContentPreview"
+                               FontSize="11"
+                               Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                               TextWrapping="Wrap"
+                               TextTrimming="CharacterEllipsis"
+                               MaxHeight="60" />
+                    <!-- 颜色预览方块 -->
+                    <Border x:Name="ColorPreview"
+                            Grid.Column="1"
+                            Width="24" Height="24"
+                            CornerRadius="4"
+                            Margin="8,0,0,0"
+                            Visibility="Collapsed"
+                            VerticalAlignment="Top" />
+                </Grid>
+            </Border>
+
+            <!-- 内联结果显示区（文本统计、Base64 解码等） -->
+            <Border x:Name="ResultPanel"
+                    Background="{DynamicResource Brush.BackgroundSecondary}"
+                    CornerRadius="6"
+                    Padding="8,6"
+                    Margin="0,0,0,10"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock x:Name="ResultLabel"
+                               FontSize="10"
+                               Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                               Text="结果" Margin="0,0,0,4" />
+                    <TextBlock x:Name="ResultText"
+                               Grid.Row="1"
+                               FontSize="11"
+                               Foreground="{DynamicResource Brush.ForegroundPrimary}"
+                               TextWrapping="Wrap"
+                               MaxHeight="200"
+                               Text="" />
+                </Grid>
             </Border>
 
             <!-- 分隔线 -->
@@ -50,39 +90,98 @@
             <!-- 操作按钮 -->
             <StackPanel x:Name="ActionButtons" />
 
-            <!-- 底部分隔线 + 桌面小组件按钮 -->
+            <!-- 底部分隔线 + 工具按钮 -->
             <Rectangle Height="1" Margin="0,8,0,8"
                        Fill="{DynamicResource Brush.BorderPrimary}" />
 
-            <Button x:Name="WidgetsButton"
-                    Click="WidgetsButton_Click"
-                    Background="Transparent"
-                    Foreground="{DynamicResource Brush.ForegroundTertiary}"
-                    BorderThickness="0"
-                    FontSize="11"
-                    HorizontalContentAlignment="Center"
-                    Cursor="Hand"
-                    Padding="4,4">
-                <Button.Template>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}"
-                                CornerRadius="6"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
-                    </ControlTemplate>
-                </Button.Template>
-                <Button.Style>
-                    <Style TargetType="Button">
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </Button.Style>
-                桌面小组件
-            </Button>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="StickyNoteButton"
+                        Click="StickyNoteButton_Click"
+                        Content="快速便签"
+                        Background="Transparent"
+                        Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                        BorderThickness="0"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Padding="6,4" Margin="0,0,4,0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <Button x:Name="OcrButton"
+                        Click="OcrButton_Click"
+                        Content="OCR识别"
+                        Background="Transparent"
+                        Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                        BorderThickness="0"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Padding="6,4" Margin="0,0,4,0">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <Button x:Name="WidgetsButton"
+                        Click="WidgetsButton_Click"
+                        Content="桌面小组件"
+                        Background="Transparent"
+                        Foreground="{DynamicResource Brush.ForegroundTertiary}"
+                        BorderThickness="0"
+                        FontSize="11"
+                        Cursor="Hand"
+                        Padding="6,4">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}"
+                                    CornerRadius="6"
+                                    Padding="{TemplateBinding Padding}">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
         </StackPanel>
     </Border>
 </Window>
