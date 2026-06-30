@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using PersonalAssistant.Features.Chat.Models.Enums;
 
@@ -24,4 +25,38 @@ public partial class ChatMessage : ObservableObject
 
     /// <summary>是否为错误消息</summary>
     public bool IsError { get; set; }
+
+    // ──── 多对话支持 ────
+
+    /// <summary>所属对话 ID</summary>
+    public string? ConversationId { get; set; }
+
+    // ──── 图片附件支持 ────
+
+    /// <summary>图片文件路径（JSON 序列化持久化）</summary>
+    public string? ImagePath { get; set; }
+
+    /// <summary>图片字节数据（UI 绑定，不序列化）</summary>
+    [JsonIgnore]
+    public byte[]? ImageBytes { get; set; }
+
+    /// <summary>是否有图片附件（计算属性，JsonIgnore）</summary>
+    [JsonIgnore]
+    public bool HasImage => ImageBytes is not null && ImageBytes.Length > 0;
+
+    // ──── 消息编辑支持 ────
+
+    /// <summary>是否处于编辑模式（JsonIgnore）</summary>
+    [JsonIgnore]
+    public bool IsEditing { get; set; }
+
+    /// <summary>编辑时的文本（JsonIgnore）</summary>
+    [JsonIgnore]
+    public string? EditText { get; set; }
+
+    // ──── 重新生成支持 ────
+
+    /// <summary>是否允许重新生成（最后一条 Assistant 消息，JsonIgnore）</summary>
+    [JsonIgnore]
+    public bool CanRegenerate { get; set; }
 }

@@ -1,8 +1,5 @@
-using System.IO;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using PersonalAssistant.Features.Chat.Models;
-using Serilog;
+using PersonalAssistant.Features.Chat.Services;
 
 namespace PersonalAssistant.Infrastructure.Common.Services;
 
@@ -17,68 +14,45 @@ public interface IChatHistoryService
 }
 
 /// <summary>
-/// 聊天历史持久化服务。
-/// 将对话消息列表保存到 %APPDATA%\PersonalAssistant\chat_history.json。
+/// 聊天历史持久化服务（委托给 ConversationStorageService）。
 /// 资源成本：仅读写时触发磁盘 I/O（按需消耗）。
 /// </summary>
 public class ChatHistoryService : IChatHistoryService
 {
-    private static readonly string HistoryPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "PersonalAssistant", "chat_history.json");
+    private readonly ConversationStorageService _storage;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    public ChatHistoryService(ConversationStorageService storage)
     {
-        WriteIndented = true,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
+        _storage = storage;
+    }
 
     /// <summary>
-    /// 保存聊天消息列表到磁盘。
-    /// 跳过 System 角色消息（模式建议等临时消息，不需要持久化）。
-    /// 最多保存 200 条消息。
+    /// 保存聊天消息列表到当前活跃对话的文件中。
     /// </summary>
     public void Save(IEnumerable<ChatMessage> messages)
     {
-        var toSave = messages
-            .Where(m => m.Role != Features.Chat.Models.Enums.MessageRole.System)
-            .TakeLast(200)
-            .ToList();
-
-        var dir = Path.GetDirectoryName(HistoryPath)!;
-        if (!Directory.Exists(dir))
-            Directory.CreateDirectory(dir);
-
-        var json = JsonSerializer.Serialize(toSave, JsonOptions);
-        var tmpPath = HistoryPath + ".tmp";
-        File.WriteAllText(tmpPath, json);
-        File.Move(tmpPath, HistoryPath, overwrite: true);
+        if (_storage.ActiveConversationId is null) return;
+        _storage.SaveMessages(_storage.ActiveConversationId, messages);
     }
 
     /// <summary>
-    /// 从磁盘加载聊天消息列表。
-    /// 文件不存在或损坏时返回空列表。
+    /// 从当前活跃对话文件加载消息列表。
     /// </summary>
     public List<ChatMessage> Load()
     {
-        if (!File.Exists(HistoryPath))
-            return new List<ChatMessage>();
-
-        try
+        if (_storage.ActiveConversationId is null)
         {
-            var json = File.ReadAllText(HistoryPath);
-            return JsonSerializer.Deserialize<List<ChatMessage>>(json, JsonOptions)
-                   ?? new List<ChatMessage>();
+            // 未初始化：触发初始化并返回默认对话的消息
+            _storage.Initialize();
         }
-        catch (Exception ex)
-        {
-            Log.Warning(ex, "[ChatHistory] 加载历史记录失败，将使用空列表");
-            return new List<ChatMessage>();
-        }
+        return _storage.ActiveConversationId is not null
+            ? _storage.LoadMessages(_storage.ActiveConversationId)
+            : new List<ChatMessage>();
     }
 
-    /// <summary>
-    /// 是否有已保存的历史记录
-    /// </summary>
-    public bool HasHistory => File.Exists(HistoryPath);
+    /// <summary>是否有已保存的历史记录</summary>
+    public bool HasHistory => _storage.ActiveConversationId is not null
+        && System.IO.File.Exists(System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "PersonalAssistant", "conversations", $"{_storage.ActiveConversationId}.json"));
 }

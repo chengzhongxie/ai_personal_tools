@@ -165,7 +165,9 @@ public class ChatAgentService
         var chatClient = client.GetChatClient(chatSettings.Model);
 
         _agent = chatClient.AsAIAgent(
-            instructions: ChatSystemPrompt.GetPrompt(_pluginHost.GetAggregatedPrompt()),
+            instructions: ChatSystemPrompt.GetPrompt(
+                _pluginHost.GetAggregatedPrompt(),
+                _settings.CustomSystemPrompt),
             name: "桌面助手",
             tools: _pluginHost.GetAllTools()
         );
@@ -185,7 +187,11 @@ public class ChatAgentService
     /// 通过 SemaphoreSlim 保证同一时间只有一个请求在执行。
     /// 内建指数退避重试（429/503/网络错误最多 3 次）。
     /// </summary>
+    /// <param name="message">用户消息文本</param>
+    /// <param name="imageBytes">可选的图片附件（PNG/JPEG 字节）</param>
+    /// <param name="ct">取消令牌</param>
     public async IAsyncEnumerable<string> SendMessageStreaming(string message,
+        byte[]? imageBytes = null,
         [EnumeratorCancellation] CancellationToken ct = default)
     {
         await _sendLock.WaitAsync(ct);
@@ -216,7 +222,7 @@ public class ChatAgentService
                     await Task.Delay(delay, ct);
                 }
 
-                var (success, tokens, error) = await TryCollectStreamAsync(message, ct);
+                var (success, tokens, error) = await TryCollectStreamAsync(message, imageBytes, ct);
 
                 if (success && tokens is not null)
                 {
@@ -241,18 +247,44 @@ public class ChatAgentService
     /// <summary>
     /// 执行单次流式 API 调用并收集所有 token。
     /// 提取为非迭代器方法，可自由使用 try-catch 进行重试判断。
+    /// 支持图片附件：通过 MEAI ChatMessage 的 DataContent 传递图片。
     /// </summary>
     private async Task<(bool success, List<string>? tokens, Exception? error)>
-        TryCollectStreamAsync(string message, CancellationToken ct)
+        TryCollectStreamAsync(string message, byte[]? imageBytes, CancellationToken ct)
     {
         try
         {
             var tokens = new List<string>();
-            await foreach (var update in _agent!.RunStreamingAsync(message, _session!, cancellationToken: ct))
+
+            if (imageBytes is { Length: > 0 })
             {
-                if (!string.IsNullOrEmpty(update.Text))
-                    tokens.Add(update.Text);
+                // 构造多模态消息：文本 + 图片
+                var meaiMessage = new Microsoft.Extensions.AI.ChatMessage(
+                    Microsoft.Extensions.AI.ChatRole.User,
+                    [
+                        new Microsoft.Extensions.AI.TextContent(message),
+                        new Microsoft.Extensions.AI.DataContent(
+                            new BinaryData(imageBytes),
+                            imageBytes.Length > 512 * 1024 ? "image/jpeg" : "image/png")
+                    ]);
+
+                await foreach (var update in _agent!.RunStreamingAsync(
+                    meaiMessage, _session!, cancellationToken: ct))
+                {
+                    if (!string.IsNullOrEmpty(update.Text))
+                        tokens.Add(update.Text);
+                }
             }
+            else
+            {
+                await foreach (var update in _agent!.RunStreamingAsync(
+                    message, _session!, cancellationToken: ct))
+                {
+                    if (!string.IsNullOrEmpty(update.Text))
+                        tokens.Add(update.Text);
+                }
+            }
+
             return (true, tokens, null);
         }
         catch (Exception ex) when (IsTransientApiError(ex))
@@ -279,6 +311,22 @@ public class ChatAgentService
     /// 清空对话历史（创建新 Session）并重置模式检测器和摘要器。
     /// </summary>
     public async Task ClearHistoryAsync()
+    {
+        await _sendLock.WaitAsync();
+        try
+        {
+            await ClearHistoryInternalAsync();
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// 切换对话：清空当前 MAF Session 历史，准备加载新对话。
+    /// </summary>
+    public async Task SwitchConversationAsync()
     {
         await _sendLock.WaitAsync();
         try
@@ -349,8 +397,8 @@ public class ChatAgentService
         _sharedState.PendingSuggestion = pattern;
 
         return $"检测到重复操作模式：{string.Join(" → ", pattern.ToolSequence)} " +
-               $"(已出现 {pattern.OccurrenceCount} 次)。\n" +
-               $"要保存为工作流吗？回复 \"保存为 {pattern.SuggestedName}\" 或告诉我你想要的名称。";
+               $"(已出现 {pattern.OccurrenceCount} 次)。" +
+               $"回复 \"保存为 {pattern.SuggestedName}\" 即可保存为工作流。";
     }
 
 }

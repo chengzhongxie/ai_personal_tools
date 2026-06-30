@@ -128,6 +128,28 @@
                       FontSize="12" Foreground="{DynamicResource Brush.ForegroundSecondary}"
                       VerticalAlignment="Center" />
 
+            <!-- Custom System Prompt -->
+            <Border Height="1" Background="{DynamicResource Brush.BorderSecondary}" Margin="0,14,0,14" />
+
+            <TextBlock FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Brush.ForegroundTertiary}" Text="自定义系统提示词"
+                       Margin="0,0,0,10" />
+
+            <TextBox x:Name="CustomPromptTextBox"
+                     Padding="8,6" FontSize="12"
+                     MinHeight="80"
+                     MaxHeight="200"
+                     TextWrapping="Wrap"
+                     AcceptsReturn="True"
+                     VerticalScrollBarVisibility="Auto"
+                     Background="{DynamicResource Brush.BackgroundSecondary}" Foreground="{DynamicResource Brush.ForegroundPrimary}"
+                     BorderBrush="{DynamicResource Brush.BorderSecondary}"
+                     CaretBrush="{DynamicResource Brush.InputCaret}" />
+
+            <TextBlock FontSize="10" Foreground="{DynamicResource Brush.ForegroundMuted}"
+                       Margin="0,4,0,0"
+                       Text="自定义 AI 助手的行为指令。留空则使用默认系统提示词。修改后需重启应用生效。" />
+
             <!-- Hotkey Configuration -->
             <Border Height="1" Background="{DynamicResource Brush.BorderSecondary}" Margin="0,14,0,14" />
 

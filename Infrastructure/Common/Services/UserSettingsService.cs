@@ -54,6 +54,9 @@ public class UserSettingsService
     /// <summary>是否使用深色主题（默认 true）</summary>
     public bool IsDarkTheme { get; set; } = true;
 
+    /// <summary>自定义系统提示词（null 表示使用默认）</summary>
+    public string? CustomSystemPrompt { get; set; }
+
     /// <summary>从文件加载设置，若文件不存在则用默认值</summary>
     public UserSettingsService()
     {
@@ -85,7 +88,8 @@ public class UserSettingsService
             HotkeyKey = HotkeyKey,
             SelectTextModifiers = SelectTextModifiers,
             SelectTextKey = SelectTextKey,
-            IsDarkTheme = IsDarkTheme
+            IsDarkTheme = IsDarkTheme,
+            CustomSystemPrompt = CustomSystemPrompt
         }, JsonOptions);
 
         var tmpPath = SettingsFilePath + ".tmp";
@@ -117,6 +121,7 @@ public class UserSettingsService
                 SelectTextModifiers = data.SelectTextModifiers != 0 ? data.SelectTextModifiers : (0x0001 | 0x0002);
                 SelectTextKey = data.SelectTextKey != 0 ? data.SelectTextKey : 0x20;
                 IsDarkTheme = data.IsDarkTheme;
+                CustomSystemPrompt = data.CustomSystemPrompt;
             }
         }
         catch (Exception ex)
@@ -201,5 +206,6 @@ public class UserSettingsService
         public uint SelectTextModifiers { get; init; }
         public uint SelectTextKey { get; init; }
         public bool IsDarkTheme { get; init; }
+        public string? CustomSystemPrompt { get; init; }
     }
 }

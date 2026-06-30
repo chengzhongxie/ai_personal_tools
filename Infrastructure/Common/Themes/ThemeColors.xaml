@@ -107,4 +107,12 @@
     <SolidColorBrush x:Key="Brush.StatusOnline" Color="{DynamicResource _StatusOnline}" />
     <SolidColorBrush x:Key="Brush.StatusOffline" Color="{DynamicResource _StatusOffline}" />
 
+    <!-- 微信风格气泡（默认深色，被主题覆盖） -->
+    <SolidColorBrush x:Key="Brush.ChatBackground" Color="#0E0E0E" />
+    <SolidColorBrush x:Key="Brush.UserBubbleWechat" Color="#1F8B4C" />
+    <SolidColorBrush x:Key="Brush.AssistantBubble" Color="#1E1E1E" />
+    <SolidColorBrush x:Key="Brush.AssistantBubbleBorder" Color="#2A2A2A" />
+    <SolidColorBrush x:Key="Brush.UserBubbleText" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="Brush.BubbleTimestamp" Color="#888888" />
+
 </ResourceDictionary>

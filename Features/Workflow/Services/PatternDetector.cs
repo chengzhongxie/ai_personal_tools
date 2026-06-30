@@ -10,7 +10,8 @@ namespace PersonalAssistant.Features.Workflow.Services;
 public class PatternDetector
 {
     private const int MaxRounds = 50;
-    private const int MinRepetitions = 3;
+    private const int MinRepetitions = 4;
+    private const int MinSequenceLength = 3;
 
     private readonly List<List<string>> _recentRounds = new();
     private readonly HashSet<string> _shownKeys = new();
@@ -34,7 +35,7 @@ public class PatternDetector
 
     private PatternMatch? DetectPattern(List<string> currentSequence)
     {
-        if (currentSequence.Count < 2)
+        if (currentSequence.Count < MinSequenceLength)
             return null;
 
         var seqKey = string.Join("→", currentSequence);

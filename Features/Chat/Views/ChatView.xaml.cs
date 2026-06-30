@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -11,7 +12,7 @@ using Serilog;
 namespace PersonalAssistant.Features.Chat.Views;
 
 /// <summary>
-/// 聊天界面视图，包含消息气泡列表、输入框和发送按钮
+/// 聊天界面视图，包含消息气泡列表、输入框、侧边栏和发送按钮
 /// </summary>
 public partial class ChatView : UserControl
 {
@@ -115,5 +116,95 @@ public partial class ChatView : UserControl
             }
             e.Handled = true;
         }
+    }
+
+    /// <summary>处理 Ctrl+V 图片粘贴</summary>
+    private void InputTextBox_PreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.KeyboardDevice.Modifiers == ModifierKeys.Control && e.Key == Key.V)
+        {
+            // Check if clipboard contains image
+            if (System.Windows.Clipboard.ContainsImage())
+            {
+                ViewModel.PasteImageCommand.Execute(null);
+                e.Handled = true;
+            }
+        }
+    }
+
+    // ──── Sidebar interactions ────
+
+    private void ToggleSidebar_Click(object sender, MouseButtonEventArgs e)
+    {
+        ViewModel.ToggleSidebarCommand.Execute(null);
+    }
+
+    private void ConversationItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement el && el.DataContext is ConversationInfo conv)
+        {
+            ViewModel.ConversationList.SwitchConversationCommand.Execute(conv);
+        }
+    }
+
+    private void SearchResultItem_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement el && el.DataContext is ConversationSearchResult result)
+        {
+            ViewModel.ConversationList.NavigateToSearchResultCommand.Execute(result);
+        }
+    }
+
+    // ──── Drag & Drop ────
+
+    private bool _isDragOver;
+
+    private void ChatView_DragEnter(object sender, DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            _isDragOver = true;
+            e.Effects = DragDropEffects.Copy;
+
+            // Set a highlight border effect on the main content area
+            if (Parent is UIElement parent)
+            {
+                // Visual feedback via cursor only
+            }
+        }
+        else
+        {
+            e.Effects = DragDropEffects.None;
+        }
+        e.Handled = true;
+    }
+
+    private void ChatView_DragOver(object sender, DragEventArgs e)
+    {
+        if (_isDragOver)
+        {
+            e.Effects = DragDropEffects.Copy;
+        }
+        e.Handled = true;
+    }
+
+    private void ChatView_DragLeave(object sender, DragEventArgs e)
+    {
+        _isDragOver = false;
+        e.Handled = true;
+    }
+
+    private void ChatView_Drop(object sender, DragEventArgs e)
+    {
+        _isDragOver = false;
+        if (e.Data.GetDataPresent(DataFormats.FileDrop))
+        {
+            var files = e.Data.GetData(DataFormats.FileDrop) as string[];
+            if (files is { Length: > 0 })
+            {
+                ViewModel.HandleDroppedFiles(files);
+            }
+        }
+        e.Handled = true;
     }
 }

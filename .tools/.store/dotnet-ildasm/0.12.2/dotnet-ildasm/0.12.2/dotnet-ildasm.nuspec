@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>dotnet-ildasm</id>
+    <version>0.12.2</version>
+    <authors>pjbgf</authors>
+    <owners>pjbgf</owners>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <licenseUrl>https://pjbgf.mit-license.org/</licenseUrl>
+    <projectUrl>https://github.com/pjbgf/dotnet-ildasm</projectUrl>
+    <description>Light-weight cross platform IL disassembler tool built in C#.</description>
+    <releaseNotes>This version adds support to try catchs, properties, params keyword and IL local variable init.</releaseNotes>
+    <tags>dotnet-ildasm, ildasm, cil, msil, dotnet-cli, disassembler, dotnet-core</tags>
+    <packageTypes>
+      <packageType name="DotnetTool" />
+    </packageTypes>
+    <repository type="git" url="https://github.com/pjbgf/dotnet-ildasm" />
+  </metadata>
+</package>

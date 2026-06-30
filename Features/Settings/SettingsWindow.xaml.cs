@@ -155,6 +155,9 @@ public partial class SettingsWindow : Window
         SelectTextHotkeyBox.CapturedKey = KeyFromVk(_settingsService.SelectTextKey);
         SelectTextHotkeyBox.HotkeyText = ""; // 强制刷新显示
 
+        // 加载自定义系统提示词
+        CustomPromptTextBox.Text = _settingsService.CustomSystemPrompt ?? string.Empty;
+
         // 根据当前 Endpoint + Model 匹配预设
         _isLoadingPreset = true;
         var matched = ProviderPresets.FirstOrDefault(p =>
@@ -303,6 +306,8 @@ public partial class SettingsWindow : Window
         _settingsService.HotkeyKey = VkFromKey(MainHotkeyBox.CapturedKey);
         _settingsService.SelectTextModifiers = Win32Modifiers(SelectTextHotkeyBox.CapturedModifiers);
         _settingsService.SelectTextKey = VkFromKey(SelectTextHotkeyBox.CapturedKey);
+        _settingsService.CustomSystemPrompt = string.IsNullOrWhiteSpace(CustomPromptTextBox.Text)
+            ? null : CustomPromptTextBox.Text.Trim();
         _settingsService.Save();
 
         DialogResult = true;

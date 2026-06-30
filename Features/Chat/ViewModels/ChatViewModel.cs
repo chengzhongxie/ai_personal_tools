@@ -455,15 +455,13 @@ public partial class ChatViewModel : ObservableObject
             _chatAgent.IncrementSummarizerRound();
 
             // 检测重复工具调用模式（由 ChatAgentService 内部的 PatternDetector 处理）
+            // 通过 InfoBar 展示建议，不占用聊天消息列表
             var suggestion = _chatAgent.CollectPatternSuggestion();
             if (suggestion is not null)
             {
-                Messages.Add(new ChatMessage
-                {
-                    Role = MessageRole.System,
-                    Content = suggestion,
-                    Timestamp = DateTime.Now
-                });
+                InfoBarMessage = suggestion;
+                InfoBarSeverity = InfoBarSeverity.Informational;
+                ShowInfoBar = true;
             }
 
             // 触发对话摘要（本地模型，异步不阻塞）

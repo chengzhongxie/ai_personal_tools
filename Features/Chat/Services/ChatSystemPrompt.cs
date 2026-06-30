@@ -11,22 +11,28 @@ internal static class ChatSystemPrompt
 {
     private static volatile string? _cachedPrompt;
     private static volatile string? _cachedPluginFragments;
+    private static volatile string? _cachedCustomPrompt;
     private static readonly Lock _lock = new();
 
     /// <summary>
     /// 构建或返回缓存的系统提示词（线程安全）。
     /// </summary>
     /// <param name="pluginPromptFragments">各插件提供的提示词片段（聚合后的文本）</param>
-    public static string GetPrompt(string pluginPromptFragments)
+    /// <param name="customPrompt">用户自定义系统提示词（null 使用默认）</param>
+    public static string GetPrompt(string pluginPromptFragments, string? customPrompt = null)
     {
         // 快速路径：volatile 读检查，大部分调用命中缓存直接返回
-        if (_cachedPrompt is not null && string.Equals(pluginPromptFragments, _cachedPluginFragments, StringComparison.Ordinal))
+        if (_cachedPrompt is not null
+            && string.Equals(pluginPromptFragments, _cachedPluginFragments, StringComparison.Ordinal)
+            && string.Equals(customPrompt ?? string.Empty, _cachedCustomPrompt ?? string.Empty, StringComparison.Ordinal))
             return _cachedPrompt;
 
         lock (_lock)
         {
             // 双重检查：锁内再次验证
-            if (_cachedPrompt is not null && string.Equals(pluginPromptFragments, _cachedPluginFragments, StringComparison.Ordinal))
+            if (_cachedPrompt is not null
+                && string.Equals(pluginPromptFragments, _cachedPluginFragments, StringComparison.Ordinal)
+                && string.Equals(customPrompt ?? string.Empty, _cachedCustomPrompt ?? string.Empty, StringComparison.Ordinal))
                 return _cachedPrompt;
 
         var cwd = Environment.CurrentDirectory;
@@ -132,6 +138,14 @@ internal static class ChatSystemPrompt
         sb.AppendLine("- After uninstalling, check for leftover files in:");
         sb.AppendLine("  %LOCALAPPDATA%/<app>, %APPDATA%/<app>, %PROGRAMDATA%/<app>");
 
+        // Append user custom system prompt (takes precedence over defaults)
+        if (!string.IsNullOrWhiteSpace(customPrompt))
+        {
+            sb.AppendLine();
+            sb.AppendLine("User's custom instructions (these take precedence over default behaviors):");
+            sb.AppendLine(customPrompt);
+        }
+
         // Append plugin-specific prompt fragments
         if (!string.IsNullOrWhiteSpace(pluginPromptFragments))
         {
@@ -140,6 +154,7 @@ internal static class ChatSystemPrompt
         }
 
         _cachedPluginFragments = pluginPromptFragments;
+        _cachedCustomPrompt = customPrompt;
         _cachedPrompt = sb.ToString();
         return _cachedPrompt;
         } // lock

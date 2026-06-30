@@ -1,0 +1,26 @@
+{
+  "version": 3,
+  "targets": {
+    "net10.0/win-x64": {
+      "dotnet-ildasm/0.12.2": {
+        "type": "package",
+        "tools": {
+          "tools/netcoreapp3.0/any/DotnetToolSettings.xml": {},
+          "tools/netcoreapp3.0/any/Microsoft.Extensions.CommandLineUtils.dll": {},
+          "tools/netcoreapp3.0/any/Mono.Cecil.Mdb.dll": {},
+          "tools/netcoreapp3.0/any/Mono.Cecil.Pdb.dll": {},
+          "tools/netcoreapp3.0/any/Mono.Cecil.Rocks.dll": {},
+          "tools/netcoreapp3.0/any/Mono.Cecil.dll": {},
+          "tools/netcoreapp3.0/any/System.Collections.Immutable.dll": {},
+          "tools/netcoreapp3.0/any/System.Reflection.Metadata.dll": {},
+          "tools/netcoreapp3.0/any/dotnet-ildasm.deps.json": {},
+          "tools/netcoreapp3.0/any/dotnet-ildasm.dll": {},
+          "tools/netcoreapp3.0/any/dotnet-ildasm.pdb": {},
+          "tools/netcoreapp3.0/any/dotnet-ildasm.runtimeconfig.json": {}
+        }
+      }
+    }
+  },
+  "libraries": {},
+  "projectFileDependencyGroups": {}
+}

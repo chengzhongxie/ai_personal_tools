@@ -309,54 +309,88 @@
             </Grid>
         </Border>
 
-        <!-- Messages Area -->
+        <!-- Messages Area (微信风格) -->
         <ScrollViewer Grid.Row="1" x:Name="MessageScroll"
-                      VerticalScrollBarVisibility="Hidden"
-                      Background="{DynamicResource Brush.BackgroundDeep}">
+                      VerticalScrollBarVisibility="Auto"
+                      Background="{DynamicResource Brush.ChatBackground}">
             <ItemsControl ItemsSource="{Binding ViewModel.Messages}"
-                          Margin="10,6">
+                          Margin="8,6">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,1">
-                            <!-- 气泡最大宽度约束 -->
-                            <Border Padding="10,6"
-                                    CornerRadius="8"
-                                    MaxWidth="560">
+                        <!-- 3 列布局：头像 | 气泡 | 头像 -->
+                        <Grid Margin="0,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="40" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="40" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- AI 头像（左） -->
+                            <Border Grid.Column="0" Width="32" Height="32"
+                                    CornerRadius="16"
+                                    VerticalAlignment="Top" Margin="4,2,4,0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Role}" Value="User">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Role}" Value="System">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Role}" Value="Tool">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#07C160" Offset="0" />
+                                        <GradientStop Color="#06AD56" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <TextBlock Text="AI" FontSize="12" FontWeight="Bold"
+                                           Foreground="#FFFFFF"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+
+                            <!-- 气泡 -->
+                            <Border Grid.Column="1" Padding="9,6"
+                                    CornerRadius="4"
+                                    MaxWidth="400">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Style.Triggers>
-                                            <!-- 用户消息：蓝色渐变，右对齐 -->
                                             <DataTrigger Binding="{Binding Role}" Value="User">
-                                                <Setter Property="Background"
-                                                        Value="{DynamicResource Brush.UserBubble}" />
+                                                <Setter Property="Background" Value="{DynamicResource Brush.UserBubbleWechat}" />
                                                 <Setter Property="HorizontalAlignment" Value="Right" />
                                             </DataTrigger>
-
-                                            <!-- AI 回复：深色卡片，左对齐 -->
                                             <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+                                                <Setter Property="Background" Value="{DynamicResource Brush.AssistantBubble}" />
                                                 <Setter Property="HorizontalAlignment" Value="Left" />
-                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.BorderSecondary}" />
-                                                <Setter Property="BorderThickness" Value="1" />
+                                                <Setter Property="BorderBrush" Value="{DynamicResource Brush.AssistantBubbleBorder}" />
+                                                <Setter Property="BorderThickness" Value="0.5" />
                                             </DataTrigger>
-
-                                            <!-- 系统/工具：居中半透明 -->
                                             <DataTrigger Binding="{Binding Role}" Value="System">
                                                 <Setter Property="Background" Value="Transparent" />
                                                 <Setter Property="HorizontalAlignment" Value="Center" />
+                                                <Setter Property="MaxWidth" Value="700" />
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding Role}" Value="Tool">
                                                 <Setter Property="Background" Value="Transparent" />
                                                 <Setter Property="HorizontalAlignment" Value="Center" />
+                                                <Setter Property="MaxWidth" Value="700" />
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
 
                                 <StackPanel>
-                                    <!-- 图片缩略图（用户消息） -->
-                                    <Image Source="{Binding ImageBytes, Converter={StaticResource BytesToImage}, ConverterParameter=300}"
-                                           MaxWidth="300" MaxHeight="200"
+                                    <!-- 图片缩略图 -->
+                                    <Image Source="{Binding ImageBytes, Converter={StaticResource BytesToImage}, ConverterParameter=280}"
+                                           MaxWidth="280" MaxHeight="180"
                                            StretchDirection="DownOnly"
                                            Margin="0,0,0,4"
                                            Visibility="{Binding HasImage, Converter={StaticResource BoolToVis}}" />
@@ -372,14 +406,13 @@
                                         BorderThickness="0" Padding="0"
                                         HorizontalScrollBarVisibility="Hidden"
                                         VerticalScrollBarVisibility="Auto"
-                                        MaxHeight="400">
+                                        MaxHeight="280">
                                         <FlowDocumentScrollViewer.Style>
                                             <Style TargetType="FlowDocumentScrollViewer">
-                                                <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSecondary}" />
-                                                <Setter Property="FontSize" Value="13" />
+                                                <Setter Property="FontSize" Value="13.5" />
                                                 <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSecondary}" />
                                                 <Setter Property="Visibility">
-                                                    <!-- 编辑中隐藏 -->
                                                     <Setter.Value>
                                                         <Binding Path="IsEditing">
                                                             <Binding.Converter>
@@ -390,7 +423,7 @@
                                                 </Setter>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding Role}" Value="User">
-                                                        <Setter Property="Foreground" Value="#FFFFFF" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.UserBubbleText}" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="System">
                                                         <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundMuted}" />
@@ -405,18 +438,12 @@
                                         </FlowDocumentScrollViewer.Style>
                                     </FlowDocumentScrollViewer>
 
-                                    <!-- 编辑按钮区域（用户消息下方，正常模式时显示） -->
-                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
-                                                Visibility="{Binding IsEditing, Converter={StaticResource InvBoolToVis}}">
-                                        <StackPanel.Style>
-                                            <Style TargetType="StackPanel">
+                                    <!-- 气泡底部：时间戳 + 操作按钮 -->
+                                    <Grid Margin="0,2,0,0"
+                                          Visibility="{Binding IsEditing, Converter={StaticResource InvBoolToVis}}">
+                                        <Grid.Style>
+                                            <Style TargetType="Grid">
                                                 <Style.Triggers>
-                                                    <DataTrigger Binding="{Binding Role}" Value="User">
-                                                        <Setter Property="Visibility" Value="Visible" />
-                                                    </DataTrigger>
-                                                    <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                        <Setter Property="Visibility" Value="Visible" />
-                                                    </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="System">
                                                         <Setter Property="Visibility" Value="Collapsed" />
                                                     </DataTrigger>
@@ -425,69 +452,59 @@
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </StackPanel.Style>
+                                        </Grid.Style>
 
-                                        <!-- Edit button for user messages -->
-                                        <TextBlock Text="&#x270E;" FontSize="12"
-                                                   Foreground="{DynamicResource Brush.ForegroundSubtle}"
-                                                   Cursor="Hand" ToolTip="编辑消息"
-                                                   Margin="0,0,10,0">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding Role}" Value="User">
-                                                            <Setter Property="Visibility" Value="Visible" />
-                                                        </DataTrigger>
-                                                        <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                        </DataTrigger>
-                                                        <DataTrigger Binding="{Binding Role}" Value="System">
-                                                            <Setter Property="Visibility" Value="Collapsed" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                            <TextBlock.InputBindings>
-                                                <MouseBinding Gesture="LeftClick"
-                                                              Command="{Binding DataContext.ViewModel.StartEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                              CommandParameter="{Binding}" />
-                                            </TextBlock.InputBindings>
-                                        </TextBlock>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
 
-                                        <!-- Regenerate button for last assistant message -->
-                                        <TextBlock Text="&#x21BB;" FontSize="14"
-                                                   Foreground="{DynamicResource Brush.ForegroundSubtle}"
-                                                   Cursor="Hand" ToolTip="重新生成回复"
-                                                   Visibility="{Binding CanRegenerate, Converter={StaticResource BoolToVis}}">
-                                            <TextBlock.InputBindings>
-                                                <MouseBinding Gesture="LeftClick"
-                                                              Command="{Binding DataContext.ViewModel.RegenerateLastResponseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                            </TextBlock.InputBindings>
-                                        </TextBlock>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <TextBlock Text="✎" FontSize="11"
+                                                       Cursor="Hand" ToolTip="编辑"
+                                                       Margin="0,0,8,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Role}" Value="User">
+                                                                <Setter Property="Visibility" Value="Visible" />
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.BubbleTimestamp}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Role}" Value="Assistant">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                                <TextBlock.InputBindings>
+                                                    <MouseBinding Gesture="LeftClick"
+                                                                  Command="{Binding DataContext.ViewModel.StartEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                  CommandParameter="{Binding}" />
+                                                </TextBlock.InputBindings>
+                                            </TextBlock>
+                                            <TextBlock Text="↻" FontSize="11"
+                                                       Foreground="{DynamicResource Brush.BubbleTimestamp}"
+                                                       Cursor="Hand" ToolTip="重新生成"
+                                                       Visibility="{Binding CanRegenerate, Converter={StaticResource BoolToVis}}">
+                                                <TextBlock.InputBindings>
+                                                    <MouseBinding Gesture="LeftClick"
+                                                                  Command="{Binding DataContext.ViewModel.RegenerateLastResponseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                                </TextBlock.InputBindings>
+                                            </TextBlock>
+                                        </StackPanel>
 
-                                        <!-- 时间戳 -->
-                                        <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
-                                                   FontSize="10" VerticalAlignment="Center"
-                                                   Margin="4,0,0,0">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding Role}" Value="User">
-                                                            <Setter Property="Foreground" Value="#93C5FD" />
-                                                        </DataTrigger>
-                                                        <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSubtle}" />
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
-                                    </StackPanel>
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource Brush.BubbleTimestamp}"
+                                                   HorizontalAlignment="Right"
+                                                   VerticalAlignment="Center" />
+                                    </Grid>
 
                                     <!-- 编辑模式按钮 -->
                                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
                                                 Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Text="&#x2714; 保存" FontSize="11"
+                                        <TextBlock Text="✓ 保存" FontSize="11"
                                                    Foreground="{DynamicResource Brush.AccentStart}"
                                                    Cursor="Hand" Margin="0,0,10,0">
                                             <TextBlock.InputBindings>
@@ -496,7 +513,7 @@
                                                               CommandParameter="{Binding}" />
                                             </TextBlock.InputBindings>
                                         </TextBlock>
-                                        <TextBlock Text="&#x2715; 取消" FontSize="11"
+                                        <TextBlock Text="✕ 取消" FontSize="11"
                                                    Foreground="{DynamicResource Brush.ForegroundMuted}"
                                                    Cursor="Hand">
                                             <TextBlock.InputBindings>
@@ -507,13 +524,11 @@
                                         </TextBlock>
                                     </StackPanel>
 
-                                    <!-- 错误消息标记 -->
-                                    <Border CornerRadius="4" Padding="6,3" Margin="0,2,0,0"
-                                            Background="#1FEF4444" BorderBrush="#33EF4444" BorderThickness="1"
-                                            Visibility="{Binding IsError, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Text="发生错误"
-                                                   Foreground="#EF4444" FontSize="11" />
-                                    </Border>
+                                    <!-- 错误标记 -->
+                                    <TextBlock Text="发送失败"
+                                               FontSize="10" Foreground="#EF4444"
+                                               Margin="0,2,0,0"
+                                               Visibility="{Binding IsError, Converter={StaticResource BoolToVis}}" />
 
                                     <!-- 工具调用列表 -->
                                     <ItemsControl ItemsSource="{Binding ToolCalls}"
@@ -530,18 +545,47 @@
                                         </ItemsControl.Style>
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate>
-                                                <Border CornerRadius="4" Padding="6,3" Margin="0,1"
-                                                        Background="{DynamicResource Brush.BackgroundDeep}">
-                                                    <TextBlock Text="{Binding}"
-                                                               FontSize="10"
-                                                               Foreground="{DynamicResource Brush.ForegroundMuted}"
-                                                               TextTrimming="CharacterEllipsis"
-                                                               MaxWidth="540" />
-                                                </Border>
+                                                <TextBlock Text="{Binding}"
+                                                           FontSize="10"
+                                                           Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           MaxWidth="380"
+                                                           Margin="0,1" />
                                             </DataTemplate>
                                         </ItemsControl.ItemTemplate>
                                     </ItemsControl>
                                 </StackPanel>
+                            </Border>
+
+                            <!-- 用户头像（右） -->
+                            <Border Grid.Column="2" Width="32" Height="32"
+                                    CornerRadius="16"
+                                    VerticalAlignment="Top" Margin="4,2,4,0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Role}" Value="Assistant">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Role}" Value="System">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Role}" Value="Tool">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <Border.Background>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#576B95" Offset="0" />
+                                        <GradientStop Color="#4A5F85" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Border.Background>
+                                <TextBlock Text="我" FontSize="12" FontWeight="Bold"
+                                           Foreground="#FFFFFF"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                         </Grid>
                     </DataTemplate>
