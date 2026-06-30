@@ -5,14 +5,21 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:helpers="clr-namespace:PersonalAssistant.Infrastructure.Common.Helpers"
+             xmlns:vm="clr-namespace:PersonalAssistant.Features.Chat.ViewModels"
              mc:Ignorable="d"
              d:DesignHeight="650" d:DesignWidth="900"
-             Background="{DynamicResource Brush.BackgroundDeep}">
+             Background="{DynamicResource Brush.BackgroundDeep}"
+             AllowDrop="True"
+             DragEnter="ChatView_DragEnter"
+             DragOver="ChatView_DragOver"
+             DragLeave="ChatView_DragLeave"
+             Drop="ChatView_Drop">
 
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
         <helpers:InverseBoolToVisibilityConverter x:Key="InvBoolToVis" />
         <helpers:MarkdownToFlowDocumentConverter x:Key="MarkdownToDoc" />
+        <helpers:BytesToImageConverter x:Key="BytesToImage" />
 
         <!-- 输入框专用样式：绕过 WPF-UI 模板内部元素的深色背景，使用简易模板 -->
         <Style x:Key="CleanInputStyle" TargetType="TextBox">
@@ -38,9 +45,201 @@
             </Setter>
         </Style>
 
+        <!-- 编辑模式 TextBox 样式 -->
+        <Style x:Key="EditInputStyle" TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource Brush.BackgroundSecondary}" />
+            <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundPrimary}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource Brush.AccentStart}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource Brush.AccentStart}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="AcceptsReturn" Value="True" />
+            <Setter Property="MinHeight" Value="36" />
+        </Style>
+
     </UserControl.Resources>
 
     <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ═══ Sidebar: 对话列表 + 搜索 ═══ -->
+        <Border Grid.Column="0" x:Name="SidebarBorder"
+                Width="180"
+                Visibility="{Binding ViewModel.SidebarExpanded, Converter={StaticResource BoolToVis}}"
+                Background="{DynamicResource Brush.BackgroundPrimary}"
+                BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,0,1,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Sidebar Header + Toggle -->
+                <Border Grid.Row="0" Padding="10,8"
+                        Background="{DynamicResource Brush.BackgroundSecondary}"
+                        BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,0,0,1">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="对话" FontSize="13" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Brush.ForegroundPrimary}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="&#x2630;" FontSize="14"
+                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                   Cursor="Hand" VerticalAlignment="Center"
+                                   MouseLeftButtonDown="ToggleSidebar_Click"
+                                   ToolTip="折叠侧边栏" />
+                    </Grid>
+                </Border>
+
+                <!-- Search Box -->
+                <Border Grid.Row="1" Padding="8,8"
+                        Background="{DynamicResource Brush.BackgroundPrimary}"
+                        BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,0,0,1">
+                    <TextBox x:Name="SearchBox"
+                             Text="{Binding ViewModel.ConversationList.SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                             FontSize="11" Padding="5,3"
+                             Background="{DynamicResource Brush.BackgroundSecondary}"
+                             Foreground="{DynamicResource Brush.ForegroundPrimary}"
+                             BorderBrush="Transparent"
+                             CaretBrush="{DynamicResource Brush.InputCaret}"
+                             ToolTip="搜索对话内容（不区分大小写）" />
+                    <!-- Watermark -->
+                </Border>
+
+                <!-- Conversation List / Search Results -->
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+                <Grid>
+                    <!-- Normal conversation list -->
+                    <ItemsControl x:Name="ConversationListCtrl"
+                                  ItemsSource="{Binding ViewModel.ConversationList.Conversations}"
+                                  Margin="0,2">
+                        <ItemsControl.Style>
+                            <Style TargetType="ItemsControl">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ViewModel.ConversationList.IsSearching}" Value="True">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ItemsControl.Style>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border x:Name="ConvItem" Padding="10,6"
+                                        Cursor="Hand" Margin="2,1,4,1" CornerRadius="6"
+                                        Background="Transparent"
+                                        MouseLeftButtonDown="ConversationItem_Click">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0"
+                                                   Text="{Binding Title}"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Row="1"
+                                                   FontSize="10"
+                                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                                   Margin="0,2,0,0">
+                                            <Run Text="{Binding MessageCount, StringFormat='{}{0} 条'}" />
+                                            <Run Text=" · " />
+                                            <Run Text="{Binding UpdatedAt, StringFormat='{}{0:MM/dd HH:mm}'}" />
+                                        </TextBlock>
+                                    </Grid>
+                                </Border>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                                        <Setter TargetName="ConvItem" Property="Background"
+                                                Value="{DynamicResource Brush.BackgroundSecondary}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Search results -->
+                    <ItemsControl x:Name="SearchResultsCtrl"
+                                  ItemsSource="{Binding ViewModel.ConversationList.SearchResults}"
+                                  Margin="0,2">
+                        <ItemsControl.Style>
+                            <Style TargetType="ItemsControl">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding ViewModel.ConversationList.IsSearching}" Value="False">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ItemsControl.Style>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Padding="8,6" Cursor="Hand"
+                                        Margin="4,2" CornerRadius="4"
+                                        Background="{DynamicResource Brush.BackgroundSecondary}"
+                                        MouseLeftButtonDown="SearchResultItem_Click">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource Brush.ForegroundSecondary}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding Excerpt}" FontSize="10"
+                                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                                   Margin="0,2,0,0"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   MaxHeight="32" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </Grid>
+                </ScrollViewer>
+
+                <!-- New Conversation Button -->
+                <Button Grid.Row="2" VerticalAlignment="Bottom"
+                        Margin="8,0,8,8"
+                        Padding="10,6"
+                        FontSize="11"
+                        BorderThickness="0"
+                        Cursor="Hand"
+                        Command="{Binding ViewModel.ConversationList.NewConversationCommand}"
+                        Background="{DynamicResource Brush.AccentBtn}"
+                        Foreground="White">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="6" />
+                        </Style>
+                    </Button.Resources>
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="BtnBorder" CornerRadius="6" Padding="10,6"
+                                    Background="{TemplateBinding Background}">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="BtnBorder" Property="Opacity" Value="0.85" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    + 新建对话
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- ═══ Main Content ═══ -->
+        <Grid Grid.Column="1">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -49,28 +248,39 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Border Grid.Row="0" Padding="16,8"
+        <Border Grid.Row="0" Padding="12,6"
                 Background="{DynamicResource Brush.BackgroundPrimary}"
                 BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,0,0,1">
             <Grid>
                 <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+
+                <!-- Sidebar toggle (when sidebar is collapsed) -->
+                <TextBlock Grid.Column="0" Text="&#x2630;" FontSize="14"
+                           Foreground="{DynamicResource Brush.ForegroundMuted}"
+                           Cursor="Hand" VerticalAlignment="Center"
+                           Margin="0,0,10,0"
+                           MouseLeftButtonDown="ToggleSidebar_Click"
+                           ToolTip="展开侧边栏"
+                           Visibility="{Binding ViewModel.SidebarExpanded, Converter={StaticResource InvBoolToVis}}" />
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
                     <TextBlock Foreground="{DynamicResource Brush.ForegroundMuted}" FontSize="11"
                                Text="DeepSeek AI · 文件读写 · 命令执行 · 网页抓取" />
                 </StackPanel>
 
                 <!-- Token 用量显示 -->
-                <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                <TextBlock Grid.Column="2" VerticalAlignment="Center"
                            FontSize="10" Foreground="{DynamicResource Brush.ForegroundSubtle}"
                            Margin="0,0,16,0"
                            Text="{Binding ViewModel.TokenDisplay}" />
 
                 <!-- 离线指示灯 -->
-                <Border Grid.Column="2" VerticalAlignment="Center"
+                <Border Grid.Column="3" VerticalAlignment="Center"
                         Margin="0,0,4,0"
                         Visibility="{Binding ViewModel.IsOffline, Converter={StaticResource BoolToVis}}">
                     <Grid>
@@ -92,7 +302,7 @@
                 </Border>
 
                 <!-- 在线状态指示灯 -->
-                <Border Grid.Column="2" Width="8" Height="8"
+                <Border Grid.Column="3" Width="8" Height="8"
                         CornerRadius="4" Background="{DynamicResource Brush.StatusOnline}"
                         VerticalAlignment="Center" Margin="0,0,12,0"
                         Visibility="{Binding ViewModel.IsOffline, Converter={StaticResource InvBoolToVis}}" />
@@ -104,14 +314,14 @@
                       VerticalScrollBarVisibility="Hidden"
                       Background="{DynamicResource Brush.BackgroundDeep}">
             <ItemsControl ItemsSource="{Binding ViewModel.Messages}"
-                          Margin="16,12">
+                          Margin="10,6">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,3">
+                        <Grid Margin="0,1">
                             <!-- 气泡最大宽度约束 -->
-                            <Border Padding="14,10"
-                                    CornerRadius="12"
-                                    MaxWidth="580">
+                            <Border Padding="10,6"
+                                    CornerRadius="8"
+                                    MaxWidth="560">
                                 <Border.Style>
                                     <Style TargetType="Border">
                                         <Style.Triggers>
@@ -144,6 +354,19 @@
                                 </Border.Style>
 
                                 <StackPanel>
+                                    <!-- 图片缩略图（用户消息） -->
+                                    <Image Source="{Binding ImageBytes, Converter={StaticResource BytesToImage}, ConverterParameter=300}"
+                                           MaxWidth="300" MaxHeight="200"
+                                           StretchDirection="DownOnly"
+                                           Margin="0,0,0,4"
+                                           Visibility="{Binding HasImage, Converter={StaticResource BoolToVis}}" />
+
+                                    <!-- 编辑模式：TextBox -->
+                                    <TextBox Text="{Binding EditText, UpdateSourceTrigger=PropertyChanged}"
+                                             Style="{StaticResource EditInputStyle}"
+                                             Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}" />
+
+                                    <!-- 正常模式：Markdown 渲染 -->
                                     <FlowDocumentScrollViewer
                                         Document="{Binding Content, Mode=OneWay, Converter={StaticResource MarkdownToDoc}}"
                                         BorderThickness="0" Padding="0"
@@ -153,8 +376,18 @@
                                         <FlowDocumentScrollViewer.Style>
                                             <Style TargetType="FlowDocumentScrollViewer">
                                                 <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSecondary}" />
-                                                <Setter Property="FontSize" Value="13.5" />
+                                                <Setter Property="FontSize" Value="13" />
                                                 <Setter Property="Background" Value="Transparent" />
+                                                <Setter Property="Visibility">
+                                                    <!-- 编辑中隐藏 -->
+                                                    <Setter.Value>
+                                                        <Binding Path="IsEditing">
+                                                            <Binding.Converter>
+                                                                <helpers:InverseBoolToVisibilityConverter />
+                                                            </Binding.Converter>
+                                                        </Binding>
+                                                    </Setter.Value>
+                                                </Setter>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding Role}" Value="User">
                                                         <Setter Property="Foreground" Value="#FFFFFF" />
@@ -172,26 +405,110 @@
                                         </FlowDocumentScrollViewer.Style>
                                     </FlowDocumentScrollViewer>
 
-                                    <!-- 时间戳 -->
-                                    <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
-                                               FontSize="10"
-                                               Margin="0,4,0,0">
-                                        <TextBlock.Style>
-                                            <Style TargetType="TextBlock">
+                                    <!-- 编辑按钮区域（用户消息下方，正常模式时显示） -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
+                                                Visibility="{Binding IsEditing, Converter={StaticResource InvBoolToVis}}">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding Role}" Value="User">
-                                                        <Setter Property="Foreground" Value="#93C5FD" />
+                                                        <Setter Property="Visibility" Value="Visible" />
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Role}" Value="Assistant">
-                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSubtle}" />
+                                                        <Setter Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Role}" Value="System">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Role}" Value="Tool">
+                                                        <Setter Property="Visibility" Value="Collapsed" />
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </TextBlock.Style>
-                                    </TextBlock>
+                                        </StackPanel.Style>
+
+                                        <!-- Edit button for user messages -->
+                                        <TextBlock Text="&#x270E;" FontSize="12"
+                                                   Foreground="{DynamicResource Brush.ForegroundSubtle}"
+                                                   Cursor="Hand" ToolTip="编辑消息"
+                                                   Margin="0,0,10,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Role}" Value="User">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Role}" Value="Assistant">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Role}" Value="System">
+                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                            <TextBlock.InputBindings>
+                                                <MouseBinding Gesture="LeftClick"
+                                                              Command="{Binding DataContext.ViewModel.StartEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                              CommandParameter="{Binding}" />
+                                            </TextBlock.InputBindings>
+                                        </TextBlock>
+
+                                        <!-- Regenerate button for last assistant message -->
+                                        <TextBlock Text="&#x21BB;" FontSize="14"
+                                                   Foreground="{DynamicResource Brush.ForegroundSubtle}"
+                                                   Cursor="Hand" ToolTip="重新生成回复"
+                                                   Visibility="{Binding CanRegenerate, Converter={StaticResource BoolToVis}}">
+                                            <TextBlock.InputBindings>
+                                                <MouseBinding Gesture="LeftClick"
+                                                              Command="{Binding DataContext.ViewModel.RegenerateLastResponseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
+                                            </TextBlock.InputBindings>
+                                        </TextBlock>
+
+                                        <!-- 时间戳 -->
+                                        <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm}'}"
+                                                   FontSize="10" VerticalAlignment="Center"
+                                                   Margin="4,0,0,0">
+                                            <TextBlock.Style>
+                                                <Style TargetType="TextBlock">
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding Role}" Value="User">
+                                                            <Setter Property="Foreground" Value="#93C5FD" />
+                                                        </DataTrigger>
+                                                        <DataTrigger Binding="{Binding Role}" Value="Assistant">
+                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSubtle}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </TextBlock.Style>
+                                        </TextBlock>
+                                    </StackPanel>
+
+                                    <!-- 编辑模式按钮 -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
+                                                Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}">
+                                        <TextBlock Text="&#x2714; 保存" FontSize="11"
+                                                   Foreground="{DynamicResource Brush.AccentStart}"
+                                                   Cursor="Hand" Margin="0,0,10,0">
+                                            <TextBlock.InputBindings>
+                                                <MouseBinding Gesture="LeftClick"
+                                                              Command="{Binding DataContext.ViewModel.SaveEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                              CommandParameter="{Binding}" />
+                                            </TextBlock.InputBindings>
+                                        </TextBlock>
+                                        <TextBlock Text="&#x2715; 取消" FontSize="11"
+                                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                                   Cursor="Hand">
+                                            <TextBlock.InputBindings>
+                                                <MouseBinding Gesture="LeftClick"
+                                                              Command="{Binding DataContext.ViewModel.CancelEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                              CommandParameter="{Binding}" />
+                                            </TextBlock.InputBindings>
+                                        </TextBlock>
+                                    </StackPanel>
 
                                     <!-- 错误消息标记 -->
-                                    <Border CornerRadius="4" Padding="8,4" Margin="0,6,0,0"
+                                    <Border CornerRadius="4" Padding="6,3" Margin="0,2,0,0"
                                             Background="#1FEF4444" BorderBrush="#33EF4444" BorderThickness="1"
                                             Visibility="{Binding IsError, Converter={StaticResource BoolToVis}}">
                                         <TextBlock Text="发生错误"
@@ -200,7 +517,7 @@
 
                                     <!-- 工具调用列表 -->
                                     <ItemsControl ItemsSource="{Binding ToolCalls}"
-                                                  Margin="0,6,0,0"
+                                                  Margin="0,2,0,0"
                                                   DataContext="{Binding}">
                                         <ItemsControl.Style>
                                             <Style TargetType="ItemsControl">
@@ -234,7 +551,7 @@
 
         <!-- InfoBar 错误提示 -->
         <ui:InfoBar Grid.Row="2"
-                    Margin="16,0,16,4"
+                    Margin="10,0,10,2"
                     IsOpen="{Binding ViewModel.ShowInfoBar}"
                     Title="提示"
                     Message="{Binding ViewModel.InfoBarMessage}"
@@ -242,106 +559,179 @@
                     IsClosable="True" />
 
         <!-- Input Area -->
-        <Border Grid.Row="3" Padding="16,12"
+        <Border Grid.Row="3" Padding="12,8"
                 Background="{DynamicResource Brush.BackgroundPrimary}"
                 BorderBrush="{DynamicResource Brush.BorderPrimary}" BorderThickness="0,1,0,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-
-                <!-- 输入框 -->
-                <Border Grid.Column="0" CornerRadius="8"
+            <StackPanel>
+                <!-- Pending image preview -->
+                <Border Padding="8" Margin="0,0,0,8"
+                        CornerRadius="6"
                         Background="{DynamicResource Brush.BackgroundSecondary}"
-                        BorderBrush="{DynamicResource Brush.BorderSecondary}" BorderThickness="1"
-                        Padding="12,0">
-                    <TextBox x:Name="InputTextBox"
-                             Style="{StaticResource CleanInputStyle}"
-                             Text="{Binding ViewModel.InputText, UpdateSourceTrigger=PropertyChanged}"
-                             MinHeight="36"
-                             FontSize="13"
-                             PreviewKeyDown="InputTextBox_PreviewKeyDown" />
+                        Visibility="{Binding ViewModel.HasPendingImage, Converter={StaticResource BoolToVis}}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Image Grid.Column="0"
+                               Source="{Binding ViewModel.PendingImageBytes, Converter={StaticResource BytesToImage}, ConverterParameter=60}"
+                               MaxWidth="60" MaxHeight="60"
+                               Stretch="Uniform" Margin="0,0,8,0" />
+                        <TextBlock Grid.Column="1" Text="图片已添加，输入文本后发送"
+                                   FontSize="11"
+                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="2" Text="&#x2715;" FontSize="12"
+                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
+                                   Cursor="Hand" VerticalAlignment="Center"
+                                   Padding="4,2"
+                                   ToolTip="移除图片">
+                            <TextBlock.InputBindings>
+                                <MouseBinding Gesture="LeftClick"
+                                              Command="{Binding ViewModel.ClearPendingImageCommand}" />
+                            </TextBlock.InputBindings>
+                        </TextBlock>
+                    </Grid>
                 </Border>
 
-                <!-- 取消按钮（流式响应进行中时可见） -->
-                <Button Grid.Column="1"
-                        Margin="10,0,0,0"
-                        Padding="12,0"
-                        MinHeight="36"
-                        Command="{Binding ViewModel.CancelCommand}"
-                        Foreground="IndianRed"
-                        FontSize="12"
-                        FontWeight="SemiBold"
-                        BorderThickness="0"
-                        Cursor="Hand"
-                        VerticalAlignment="Center"
-                        Visibility="{Binding ViewModel.IsWorking, Converter={StaticResource BoolToVis}}">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="6" />
-                        </Style>
-                    </Button.Resources>
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="BtnBorder" CornerRadius="6"
-                                    Background="#7F1D1D" Padding="12,6">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="BtnBorder"
-                                            Property="Background"
-                                            Value="#991B1B" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                    &#x2715; 取消
-                </Button>
+                <!-- Input Row -->
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                <!-- 发送按钮 -->
-                <Button Grid.Column="2"
-                        Margin="10,0,0,0"
-                        Padding="18,0"
-                        MinHeight="38"
-                        Command="{Binding ViewModel.SendCommand}"
-                        Foreground="White"
-                        FontSize="13"
-                        FontWeight="SemiBold"
-                        BorderThickness="0"
-                        Cursor="Hand"
-                        VerticalAlignment="Center">
-                    <Button.Resources>
-                        <Style TargetType="Border">
-                            <Setter Property="CornerRadius" Value="8" />
-                        </Style>
-                    </Button.Resources>
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="BtnBorder" CornerRadius="8"
-                                    Background="{DynamicResource Brush.SendBtn}"
-                                    Padding="18,0">
-                                <ContentPresenter HorizontalAlignment="Center"
-                                                  VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="BtnBorder"
-                                            Property="Background"
-                                            Value="{DynamicResource Brush.SendBtnHover}" />
-                                </Trigger>
-                                <Trigger Property="IsEnabled" Value="False">
-                                    <Setter TargetName="BtnBorder" Property="Opacity" Value="0.5" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                    发送
-                </Button>
-            </Grid>
+                    <!-- 输入框 -->
+                    <Border Grid.Column="0" CornerRadius="8"
+                            Background="{DynamicResource Brush.BackgroundSecondary}"
+                            BorderBrush="{DynamicResource Brush.BorderSecondary}" BorderThickness="1"
+                            Padding="12,0">
+                        <TextBox x:Name="InputTextBox"
+                                 Style="{StaticResource CleanInputStyle}"
+                                 Text="{Binding ViewModel.InputText, UpdateSourceTrigger=PropertyChanged}"
+                                 MinHeight="36"
+                                 FontSize="13"
+                                 PreviewKeyDown="InputTextBox_PreviewKeyDown"
+                                 PreviewKeyUp="InputTextBox_PreviewKeyUp" />
+                    </Border>
+
+                    <!-- 粘贴图片按钮 -->
+                    <Button Grid.Column="1"
+                            Margin="8,0,0,0"
+                            Padding="8,0"
+                            MinHeight="36"
+                            Command="{Binding ViewModel.PasteImageCommand}"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            ToolTip="从剪贴板粘贴图片">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6" />
+                            </Style>
+                        </Button.Resources>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="BtnBorder" CornerRadius="6"
+                                        Background="{DynamicResource Brush.BackgroundSecondary}"
+                                        Padding="8,6">
+                                    <ContentPresenter HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder"
+                                                Property="Background"
+                                                Value="{DynamicResource Brush.BorderSecondary}" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <TextBlock Text="&#x1F5BC;" FontSize="16" />
+                    </Button>
+
+                    <!-- 取消按钮（流式响应进行中时可见） -->
+                    <Button Grid.Column="2"
+                            Margin="8,0,0,0"
+                            Padding="12,0"
+                            MinHeight="36"
+                            Command="{Binding ViewModel.CancelCommand}"
+                            Foreground="IndianRed"
+                            FontSize="12"
+                            FontWeight="SemiBold"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            VerticalAlignment="Center"
+                            Visibility="{Binding ViewModel.IsWorking, Converter={StaticResource BoolToVis}}">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="6" />
+                            </Style>
+                        </Button.Resources>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="BtnBorder" CornerRadius="6"
+                                        Background="#7F1D1D" Padding="12,6">
+                                    <ContentPresenter HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder"
+                                                Property="Background"
+                                                Value="#991B1B" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        &#x2715; 取消
+                    </Button>
+
+                    <!-- 发送按钮 -->
+                    <Button Grid.Column="3"
+                            Margin="8,0,0,0"
+                            Padding="18,0"
+                            MinHeight="38"
+                            Command="{Binding ViewModel.SendCommand}"
+                            Foreground="White"
+                            FontSize="13"
+                            FontWeight="SemiBold"
+                            BorderThickness="0"
+                            Cursor="Hand"
+                            VerticalAlignment="Center">
+                        <Button.Resources>
+                            <Style TargetType="Border">
+                                <Setter Property="CornerRadius" Value="8" />
+                            </Style>
+                        </Button.Resources>
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="BtnBorder" CornerRadius="8"
+                                        Background="{DynamicResource Brush.SendBtn}"
+                                        Padding="18,0">
+                                    <ContentPresenter HorizontalAlignment="Center"
+                                                      VerticalAlignment="Center" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="BtnBorder"
+                                                Property="Background"
+                                                Value="{DynamicResource Brush.SendBtnHover}" />
+                                    </Trigger>
+                                    <Trigger Property="IsEnabled" Value="False">
+                                        <Setter TargetName="BtnBorder" Property="Opacity" Value="0.5" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        发送
+                    </Button>
+                </Grid>
+            </StackPanel>
         </Border>
+        </Grid>
     </Grid>
 </UserControl>
