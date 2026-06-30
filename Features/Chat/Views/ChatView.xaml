@@ -460,37 +460,67 @@
                                         </Grid.ColumnDefinitions>
 
                                         <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                            <TextBlock Text="✎" FontSize="11"
-                                                       Cursor="Hand" ToolTip="编辑"
-                                                       Margin="0,0,8,0">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
+                                            <Button Content="✎" FontSize="11"
+                                                    Cursor="Hand" ToolTip="编辑"
+                                                    Margin="0,0,8,0"
+                                                    Command="{Binding DataContext.ViewModel.StartEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="BorderThickness" Value="0" />
+                                                        <Setter Property="Padding" Value="0" />
+                                                        <Setter Property="MinWidth" Value="20" />
+                                                        <Setter Property="MinHeight" Value="20" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.BubbleTimestamp}" />
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="Button">
+                                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
                                                         <Style.Triggers>
                                                             <DataTrigger Binding="{Binding Role}" Value="User">
                                                                 <Setter Property="Visibility" Value="Visible" />
-                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.BubbleTimestamp}" />
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Role}" Value="Assistant">
                                                                 <Setter Property="Visibility" Value="Collapsed" />
                                                             </DataTrigger>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.AccentStart}" />
+                                                            </Trigger>
                                                         </Style.Triggers>
                                                     </Style>
-                                                </TextBlock.Style>
-                                                <TextBlock.InputBindings>
-                                                    <MouseBinding Gesture="LeftClick"
-                                                                  Command="{Binding DataContext.ViewModel.StartEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                                  CommandParameter="{Binding}" />
-                                                </TextBlock.InputBindings>
-                                            </TextBlock>
-                                            <TextBlock Text="↻" FontSize="11"
-                                                       Foreground="{DynamicResource Brush.BubbleTimestamp}"
-                                                       Cursor="Hand" ToolTip="重新生成"
-                                                       Visibility="{Binding CanRegenerate, Converter={StaticResource BoolToVis}}">
-                                                <TextBlock.InputBindings>
-                                                    <MouseBinding Gesture="LeftClick"
-                                                                  Command="{Binding DataContext.ViewModel.RegenerateLastResponseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" />
-                                                </TextBlock.InputBindings>
-                                            </TextBlock>
+                                                </Button.Style>
+                                            </Button>
+                                            <Button Content="↻" FontSize="11"
+                                                    Cursor="Hand" ToolTip="重新生成"
+                                                    Command="{Binding DataContext.ViewModel.RegenerateLastResponseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    Visibility="{Binding CanRegenerate, Converter={StaticResource BoolToVis}}">
+                                                <Button.Style>
+                                                    <Style TargetType="Button">
+                                                        <Setter Property="Background" Value="Transparent" />
+                                                        <Setter Property="BorderThickness" Value="0" />
+                                                        <Setter Property="Padding" Value="0" />
+                                                        <Setter Property="MinWidth" Value="20" />
+                                                        <Setter Property="MinHeight" Value="20" />
+                                                        <Setter Property="Foreground" Value="{DynamicResource Brush.BubbleTimestamp}" />
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="Button">
+                                                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                        <Style.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource Brush.AccentStart}" />
+                                                            </Trigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Button.Style>
+                                            </Button>
                                         </StackPanel>
 
                                         <TextBlock Grid.Column="1"
@@ -504,24 +534,56 @@
                                     <!-- 编辑模式按钮 -->
                                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
                                                 Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}">
-                                        <TextBlock Text="✓ 保存" FontSize="11"
-                                                   Foreground="{DynamicResource Brush.AccentStart}"
-                                                   Cursor="Hand" Margin="0,0,10,0">
-                                            <TextBlock.InputBindings>
-                                                <MouseBinding Gesture="LeftClick"
-                                                              Command="{Binding DataContext.ViewModel.SaveEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                              CommandParameter="{Binding}" />
-                                            </TextBlock.InputBindings>
-                                        </TextBlock>
-                                        <TextBlock Text="✕ 取消" FontSize="11"
-                                                   Foreground="{DynamicResource Brush.ForegroundMuted}"
-                                                   Cursor="Hand">
-                                            <TextBlock.InputBindings>
-                                                <MouseBinding Gesture="LeftClick"
-                                                              Command="{Binding DataContext.ViewModel.CancelEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                              CommandParameter="{Binding}" />
-                                            </TextBlock.InputBindings>
-                                        </TextBlock>
+                                        <Button Content="✓ 保存" FontSize="11"
+                                                Cursor="Hand" Margin="0,0,10,0"
+                                                Command="{Binding DataContext.ViewModel.SaveEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Background" Value="Transparent" />
+                                                    <Setter Property="BorderThickness" Value="0" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.AccentStart}" />
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.AccentEnd}" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
+                                        <Button Content="✕ 取消" FontSize="11"
+                                                Cursor="Hand"
+                                                Command="{Binding DataContext.ViewModel.CancelEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                CommandParameter="{Binding}">
+                                            <Button.Style>
+                                                <Style TargetType="Button">
+                                                    <Setter Property="Background" Value="Transparent" />
+                                                    <Setter Property="BorderThickness" Value="0" />
+                                                    <Setter Property="Padding" Value="0" />
+                                                    <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundMuted}" />
+                                                    <Setter Property="Template">
+                                                        <Setter.Value>
+                                                            <ControlTemplate TargetType="Button">
+                                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                                            </ControlTemplate>
+                                                        </Setter.Value>
+                                                    </Setter>
+                                                    <Style.Triggers>
+                                                        <Trigger Property="IsMouseOver" Value="True">
+                                                            <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundTertiary}" />
+                                                        </Trigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+                                        </Button>
                                     </StackPanel>
 
                                     <!-- 错误标记 -->
