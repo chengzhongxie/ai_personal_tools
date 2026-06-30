@@ -371,7 +371,7 @@ public sealed class PluginToolDefinition
 - **WorkflowExecutorService**：按需消耗（仅 run_workflow 调用时执行，不调 AI）
 
 ### 本地模型资源评估
-- **LocalModelService**：首次加载 ~550MB 内存（模型 + 1024 context KV Cache），空闲时零 CPU。推理时 CPU 按需消耗（~0.5B 参数，单轮 <5s），单线程 SemaphoreSlim 限流。
+- **LocalModelService**：首次加载 ~650MB 内存（模型 + 4096 context KV Cache），空闲时零 CPU。推理时 CPU 按需消耗（~0.5B 参数，单轮 <5s），单线程 SemaphoreSlim 限流。输入过长时自动截断重试。
 
 ### 定时任务资源评估
 - **SchedulerService**：30s 定时器 Tick 检查（O(1) 内存缓存比较），5 分钟刷新一次磁盘

@@ -319,9 +319,43 @@ public sealed class LocalModelService : IDisposable
                             $"<|im_start|>assistant\n";
 
             var output = new System.Text.StringBuilder();
-            await foreach (var token in executor.InferAsync(fullPrompt, inferenceParams, ct))
+            try
             {
-                output.Append(token);
+                await foreach (var token in executor.InferAsync(fullPrompt, inferenceParams, ct))
+                {
+                    output.Append(token);
+                }
+            }
+            catch (Exception ex) when (ex.Message.Contains("llama_decode") || ex.Message.Contains("InvalidInputBatch"))
+            {
+                Log.Warning(ex, "[LocalModel] 推理失败，可能是输入过长，尝试截断后重试");
+
+                // 输入过长回退：截断用户 prompt 后重试
+                var maxPromptChars = 1500; // 安全值，约 400-500 tokens
+                if (prompt.Length > maxPromptChars)
+                {
+                    var truncated = prompt[..maxPromptChars];
+                    var fallbackPrompt = $"<|im_start|>system\n{systemPrompt}<|im_end|>\n" +
+                                        $"<|im_start|>user\n{truncated}<|im_end|>\n" +
+                                        $"<|im_start|>assistant\n";
+                    output.Clear();
+                    try
+                    {
+                        await foreach (var token in executor.InferAsync(fallbackPrompt, inferenceParams, ct))
+                        {
+                            output.Append(token);
+                        }
+                    }
+                    catch (Exception ex2)
+                    {
+                        Log.Error(ex2, "[LocalModel] 截断后重试仍失败");
+                        return $"本地模型推理失败：输入过长或格式不兼容。({ex2.Message})";
+                    }
+                }
+                else
+                {
+                    return $"本地模型推理失败：引擎解码错误。请尝试缩短输入文本。({ex.Message})";
+                }
             }
 
             var result = output.ToString().Trim();
@@ -348,8 +382,10 @@ public sealed class LocalModelService : IDisposable
 
             var parameters = new ModelParams(_modelPath)
             {
-                ContextSize = 1024,
+                ContextSize = 4096,
                 GpuLayerCount = 0,
+                BatchSize = 512,
+                Threads = Math.Max(1, Environment.ProcessorCount / 2),
             };
 
             _weights = LLamaWeights.LoadFromFile(parameters);
