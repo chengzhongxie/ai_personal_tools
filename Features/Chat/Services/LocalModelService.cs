@@ -306,7 +306,8 @@ public sealed class LocalModelService : IDisposable
             if (_context is null)
                 return "本地模型未正确初始化。";
 
-            var executor = new InteractiveExecutor(_context);
+            // 构建 prompt 并通过 token 计数截断，避免 InvalidInputBatch
+            var fullPrompt = BuildTruncatedPrompt(systemPrompt, prompt, maxTokens);
 
             var inferenceParams = new InferenceParams
             {
@@ -314,48 +315,11 @@ public sealed class LocalModelService : IDisposable
                 AntiPrompts = ["<|im_end|>", "<|endoftext|>"],
             };
 
-            var fullPrompt = $"<|im_start|>system\n{systemPrompt}<|im_end|>\n" +
-                            $"<|im_start|>user\n{prompt}<|im_end|>\n" +
-                            $"<|im_start|>assistant\n";
-
             var output = new System.Text.StringBuilder();
-            try
+            var executor = new InteractiveExecutor(_context);
+            await foreach (var token in executor.InferAsync(fullPrompt, inferenceParams, ct))
             {
-                await foreach (var token in executor.InferAsync(fullPrompt, inferenceParams, ct))
-                {
-                    output.Append(token);
-                }
-            }
-            catch (Exception ex) when (ex.Message.Contains("llama_decode") || ex.Message.Contains("InvalidInputBatch"))
-            {
-                Log.Warning(ex, "[LocalModel] 推理失败，可能是输入过长，尝试截断后重试");
-
-                // 输入过长回退：截断用户 prompt 后重试
-                var maxPromptChars = 1500; // 安全值，约 400-500 tokens
-                if (prompt.Length > maxPromptChars)
-                {
-                    var truncated = prompt[..maxPromptChars];
-                    var fallbackPrompt = $"<|im_start|>system\n{systemPrompt}<|im_end|>\n" +
-                                        $"<|im_start|>user\n{truncated}<|im_end|>\n" +
-                                        $"<|im_start|>assistant\n";
-                    output.Clear();
-                    try
-                    {
-                        await foreach (var token in executor.InferAsync(fallbackPrompt, inferenceParams, ct))
-                        {
-                            output.Append(token);
-                        }
-                    }
-                    catch (Exception ex2)
-                    {
-                        Log.Error(ex2, "[LocalModel] 截断后重试仍失败");
-                        return $"本地模型推理失败：输入过长或格式不兼容。({ex2.Message})";
-                    }
-                }
-                else
-                {
-                    return $"本地模型推理失败：引擎解码错误。请尝试缩短输入文本。({ex.Message})";
-                }
+                output.Append(token);
             }
 
             var result = output.ToString().Trim();
@@ -364,6 +328,45 @@ public sealed class LocalModelService : IDisposable
         finally
         {
             _initLock.Release();
+        }
+
+        // 构建 prompt 并基于 token 计数截断到安全长度
+        string BuildTruncatedPrompt(string sysPrompt, string userPrompt, int maxGenTokens)
+        {
+            const int ctxSize = 4096;
+            var template = $"<|im_start|>system\n{sysPrompt}<|im_end|>\n" +
+                          $"<|im_start|>user\n{userPrompt}<|im_end|>\n" +
+                          $"<|im_start|>assistant\n";
+
+            // 先尝试完整 prompt
+            var tokens = _context!.Tokenize(template, addBos: true, special: true);
+            if (tokens.Length + maxGenTokens <= ctxSize)
+                return template;
+
+            // 超出上下文 → 按 token 数截断用户 prompt
+            var overhead = $"<|im_start|>system\n{sysPrompt}<|im_end|>\n" +
+                          $"<|im_start|>user\n" +
+                          $"<|im_end|>\n<|im_start|>assistant\n";
+            var overheadTokens = _context.Tokenize(overhead, addBos: true, special: true);
+            var maxUserTokens = ctxSize - overheadTokens.Length - maxGenTokens - 10; // 10 token 安全边际
+
+            if (maxUserTokens <= 0)
+                return template; // system prompt 本身就太长了，尝试完整发送
+
+            // 从用户 prompt 中截取 maxUserTokens 个 token
+            var userTokens = _context.Tokenize(userPrompt, addBos: false, special: true);
+            if (userTokens.Length <= maxUserTokens)
+                return template; // 不应该到达这里
+
+#pragma warning disable CS0618 // DeTokenize 标记为过时，但 StreamingTokenDecoder 对简单截断过于复杂
+            var truncatedUser = _context.DeTokenize(userTokens[..maxUserTokens]);
+#pragma warning restore CS0618
+            Log.Information("[LocalModel] 输入截断: {TotalTokens} → {MaxInputTokens} tokens (上下文 {CtxSize})",
+                tokens.Length, overheadTokens.Length + maxUserTokens, ctxSize);
+
+            return $"<|im_start|>system\n{sysPrompt}<|im_end|>\n" +
+                   $"<|im_start|>user\n{truncatedUser}<|im_end|>\n" +
+                   $"<|im_start|>assistant\n";
         }
     }
 
@@ -384,7 +387,7 @@ public sealed class LocalModelService : IDisposable
             {
                 ContextSize = 4096,
                 GpuLayerCount = 0,
-                BatchSize = 512,
+                BatchSize = 256,
                 Threads = Math.Max(1, Environment.ProcessorCount / 2),
             };
 
