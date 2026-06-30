@@ -1,4 +1,5 @@
 <UserControl x:Class="PersonalAssistant.Features.Chat.Views.ChatView"
+             x:Name="ChatViewRoot"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -463,7 +464,7 @@
                                             <Button Content="✎" FontSize="11"
                                                     Cursor="Hand" ToolTip="编辑"
                                                     Margin="0,0,8,0"
-                                                    Command="{Binding DataContext.ViewModel.StartEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    Command="{Binding ViewModel.StartEditMessageCommand, ElementName=ChatViewRoot}"
                                                     CommandParameter="{Binding}">
                                                 <Button.Style>
                                                     <Style TargetType="Button">
@@ -496,7 +497,7 @@
                                             </Button>
                                             <Button Content="↻" FontSize="11"
                                                     Cursor="Hand" ToolTip="重新生成"
-                                                    Command="{Binding DataContext.ViewModel.RegenerateLastResponseCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    Command="{Binding ViewModel.RegenerateLastResponseCommand, ElementName=ChatViewRoot}"
                                                     Visibility="{Binding CanRegenerate, Converter={StaticResource BoolToVis}}">
                                                 <Button.Style>
                                                     <Style TargetType="Button">
@@ -536,7 +537,7 @@
                                                 Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}">
                                         <Button Content="✓ 保存" FontSize="11"
                                                 Cursor="Hand" Margin="0,0,10,0"
-                                                Command="{Binding DataContext.ViewModel.SaveEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                Command="{Binding ViewModel.SaveEditMessageCommand, ElementName=ChatViewRoot}"
                                                 CommandParameter="{Binding}">
                                             <Button.Style>
                                                 <Style TargetType="Button">
@@ -561,7 +562,7 @@
                                         </Button>
                                         <Button Content="✕ 取消" FontSize="11"
                                                 Cursor="Hand"
-                                                Command="{Binding DataContext.ViewModel.CancelEditMessageCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                Command="{Binding ViewModel.CancelEditMessageCommand, ElementName=ChatViewRoot}"
                                                 CommandParameter="{Binding}">
                                             <Button.Style>
                                                 <Style TargetType="Button">

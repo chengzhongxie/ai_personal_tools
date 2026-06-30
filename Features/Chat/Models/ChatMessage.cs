@@ -47,12 +47,14 @@ public partial class ChatMessage : ObservableObject
     // ──── 消息编辑支持 ────
 
     /// <summary>是否处于编辑模式（JsonIgnore）</summary>
-    [JsonIgnore]
-    public bool IsEditing { get; set; }
+    [ObservableProperty]
+    [property: JsonIgnore]
+    private bool _isEditing;
 
     /// <summary>编辑时的文本（JsonIgnore）</summary>
-    [JsonIgnore]
-    public string? EditText { get; set; }
+    [ObservableProperty]
+    [property: JsonIgnore]
+    private string? _editText;
 
     // ──── 重新生成支持 ────
 
