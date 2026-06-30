@@ -70,7 +70,8 @@ public class ModelRoutingService
     /// <summary>实时数据/外部信息查询关键词 — 需要 web_search/web_fetch 工具，必须走远程</summary>
     private static readonly Regex RealTimeQueryPattern = new(
         // 天气相关
-        @"(天气|气温|降雨|刮风|下雪|雾霾|台风|空气质量|湿度|风力|" +
+        @"(天气|气温|下雨|下雪|降雨|刮风|刮台风|雾霾|台风|冰雹|暴雪|雷暴|" +
+        @"空气质量|湿度|风力|温度|摄氏度|华氏度|防晒|紫外线|" +
         @"weather|temperature|rain|snow|wind|forecast|" +
         // 新闻/时事
         @"新闻|资讯|头条|时事|热点|最新消息|最近发生|" +
@@ -82,9 +83,9 @@ public class ModelRoutingService
         @"翻译.*(英语|英文|日语|韩语|法语|德语|西班牙|俄语|中文)|" +
         @"translate|translation|" +
         // 时间敏感词（今天/明天/后天/昨天 — 通常需要实时信息）
-        @"(今天|明天|后天|昨天|本周|这周|下周|今晚|明早).{0,10}(天气|气温|新闻|股价|汇率|" +
-        @"发生|怎么样|如何|什么|多少|几点|何时|日期|星期|" +
-        @"weather|news|stock|price|happen|going|what|how)|" +
+        @"(今天|明天|后天|昨天|本周|这周|下周|今晚|明早).{0,15}(天气|气温|下雨|下雪|降雨|" +
+        @"新闻|股价|汇率|发生|怎么样|如何|什么|多少|几点|何时|日期|星期|" +
+        @"weather|news|stock|price|happen|going|what|how|will|can)|" +
         // 网络搜索意图短语
         @"(搜一下|帮我搜|查找一下|网上查|上网搜|帮我查查|查阅一下|查一下|" +
         @"search.for|look.up|find.me))",
