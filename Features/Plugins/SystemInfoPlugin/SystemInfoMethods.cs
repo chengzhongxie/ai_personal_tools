@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Windows;
+using Humanizer;
 using System.Windows.Media.Imaging;
 using PersonalAssistant.Features.Plugins.SystemTools;
 using Serilog;
@@ -49,7 +50,7 @@ internal static class SystemInfoMethods
             if (cat is "all")
             {
                 var uptime = TimeSpan.FromMilliseconds(Win32Native.GetTickCount64());
-                sb.AppendLine($"System Uptime: {uptime:dd\\.hh\\:mm\\:ss}");
+                sb.AppendLine($"System Uptime: {uptime:dd\\.hh\\:mm\\:ss} ({uptime.Humanize(2)})");
                 sb.AppendLine($"Machine: {Environment.MachineName}");
                 sb.AppendLine($"OS: {Environment.OSVersion}");
                 sb.AppendLine($"Processors: {Environment.ProcessorCount}");

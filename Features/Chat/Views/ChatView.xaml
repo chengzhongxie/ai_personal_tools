@@ -7,6 +7,7 @@
              xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
              xmlns:helpers="clr-namespace:PersonalAssistant.Infrastructure.Common.Helpers"
              xmlns:vm="clr-namespace:PersonalAssistant.Features.Chat.ViewModels"
+             xmlns:md="clr-namespace:MdXaml;assembly=MdXaml"
              mc:Ignorable="d"
              d:DesignHeight="650" d:DesignWidth="900"
              Background="{DynamicResource Brush.BackgroundDeep}"
@@ -19,7 +20,6 @@
     <UserControl.Resources>
         <helpers:BoolToVisibilityConverter x:Key="BoolToVis" />
         <helpers:InverseBoolToVisibilityConverter x:Key="InvBoolToVis" />
-        <helpers:MarkdownToFlowDocumentConverter x:Key="MarkdownToDoc" />
         <helpers:BytesToImageConverter x:Key="BytesToImage" />
 
         <!-- 输入框专用样式：绕过 WPF-UI 模板内部元素的深色背景，使用简易模板 -->
@@ -401,15 +401,15 @@
                                              Style="{StaticResource EditInputStyle}"
                                              Visibility="{Binding IsEditing, Converter={StaticResource BoolToVis}}" />
 
-                                    <!-- 正常模式：Markdown 渲染 -->
-                                    <FlowDocumentScrollViewer
-                                        Document="{Binding Content, Mode=OneWay, Converter={StaticResource MarkdownToDoc}}"
+                                    <!-- 正常模式：MdXaml Markdown 渲染（自带主题排版） -->
+                                    <md:MarkdownScrollViewer
+                                        Markdown="{Binding Content, Mode=OneWay}"
                                         BorderThickness="0" Padding="0"
                                         HorizontalScrollBarVisibility="Hidden"
                                         VerticalScrollBarVisibility="Auto"
                                         MaxHeight="280">
-                                        <FlowDocumentScrollViewer.Style>
-                                            <Style TargetType="FlowDocumentScrollViewer">
+                                        <md:MarkdownScrollViewer.Style>
+                                            <Style TargetType="md:MarkdownScrollViewer">
                                                 <Setter Property="FontSize" Value="13.5" />
                                                 <Setter Property="Background" Value="Transparent" />
                                                 <Setter Property="Foreground" Value="{DynamicResource Brush.ForegroundSecondary}" />
@@ -436,8 +436,8 @@
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
-                                        </FlowDocumentScrollViewer.Style>
-                                    </FlowDocumentScrollViewer>
+                                        </md:MarkdownScrollViewer.Style>
+                                    </md:MarkdownScrollViewer>
 
                                     <!-- 气泡底部：时间戳 + 操作按钮 -->
                                     <Grid Margin="0,2,0,0"

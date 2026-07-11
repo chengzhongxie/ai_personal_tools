@@ -132,6 +132,9 @@ public partial class App : Application
                 // 本地命令拦截器（无接口）
                 services.AddSingleton<Features.Chat.Services.LocalCommandInterceptor>();
 
+                // 消息预处理管线（无接口，依赖 LocalCommandInterceptor + IToolPlugin）
+                services.AddSingleton<Features.Chat.Services.MessagePreprocessor>();
+
                 // 对话导出服务（无接口）
                 services.AddSingleton<Features.Chat.Services.ChatExportService>();
 

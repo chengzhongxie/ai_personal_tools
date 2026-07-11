@@ -73,6 +73,10 @@
 | 日志 | Serilog 4.3.0 |
 | 本地 LLM | LLamaSharp 0.27.0 + Qwen2.5-0.5B-Instruct GGUF (离线，零 token) |
 | 主题 | DynamicResource 主题系统（深色/浅色可切换） |
+| Markdown 渲染 | MdXaml 1.27.0 (MIT) — WPF Markdown 渲染引擎，自带主题样式 |
+| HTML 解析 | AngleSharp 1.5.2 (MIT) — 现代 HTML5 解析器，CSS 选择器 |
+| HTTP 重试 | Polly 8.7.0 (BSD-3) — 指数退避重试策略 |
+| 人性化文本 | Humanizer.Core 3.0.10 (MIT) — 时间/数字人性化展示，Truncate 截断 |
 | 用户配置 | `%APPDATA%\PersonalAssistant\settings.json` (不入库，每台电脑独立) |
 
 ## 架构：插件化工具系统
@@ -107,6 +111,7 @@ PluginAggregator 自动发现所有 IToolPlugin（DI IEnumerable<IToolPlugin> + 
 | 接口 | 职责 |
 |------|------|
 | `IToolPlugin` | 插件契约：提供 AIFunction[] + TryExecuteToolAsync + 提示词片段 |
+| `IProactivePlugin` | 主动插件：IntentPattern 正则检测意图 + ExecuteProactivelyAsync 代码层直接触发，不依赖 AI 工具调用决策 |
 | `IToolPluginHost` | 聚合器接口：GetAllTools() + ExecuteToolStepAsync() + GetAggregatedPrompt() |
 | `IDangerousToolPolicy` | 危险操作确认策略：DangerConfirmation + ConfirmDangerous() |
 
@@ -123,7 +128,7 @@ PluginAggregator 自动发现所有 IToolPlugin（DI IEnumerable<IToolPlugin> + 
 
 ### 添加新插件（零 DI 配置）
 
-创建 2 个文件即可，无需触碰任何现有代码：
+创建 1-2 个文件即可，无需触碰任何现有代码：
 ```
 Features/Plugins/DocumentTools/
 ├── DocumentPlugin.cs        # IToolPlugin 实现
@@ -131,6 +136,45 @@ Features/Plugins/DocumentTools/
 ```
 
 插件通过 DI 自动发现（`IToolPlugin` 扫描），工具自动注册到 AI Agent。
+
+### 主动插件机制（`IProactivePlugin`）
+
+> 部分 AI 模型（如 DeepSeek）工具调用不够可靠。`IProactivePlugin` 让插件在代码层主动触发，不依赖 AI 决策。
+
+**工作流程：**
+```
+用户消息 → ChatViewModel 遍历所有 IProactivePlugin
+  → IntentPattern.IsMatch(text)? 
+    → YES: ExecuteProactivelyAsync() → 结果注入 AI 上下文
+    → NO:  跳过
+  → AI 基于上下文格式化输出（也可额外调用同名 AI 工具）
+```
+
+**适用场景：**
+- 需要绕过模型安全过滤的查询（天气、新闻等被拦截的实时数据）
+- 对可靠性要求高的工具（AI 不调用时仍能执行）
+- 用户期望即时响应的信息查询
+
+**实现方式（插件开发者只需写数据逻辑，不管 AI prompt）：**
+```csharp
+public class MyPlugin : IToolPlugin, IProactivePlugin
+{
+    public Regex? IntentPattern => new(@"关键词正则");
+
+    public async Task<ProactiveResult?> ExecuteProactivelyAsync(string msg)
+    {
+        var data = await FetchDataAsync(msg);
+        // BypassAI: true → 直接展示，零 token（输出已是完整自然语言）
+        // BypassAI: false → 注入 AI 上下文，AI 格式化后回复
+        return new ProactiveResult(data, BypassAI: false);
+    }
+    // + IToolPlugin 实现（AI 仍可调用此工具做细化查询）
+}
+```
+
+WeatherPlugin 使用 `BypassAI: true`——天气报告已是完整自然语言（数据 + 6 类建议），直接展示给用户，走本地逻辑零 token。
+
+ChatViewModel 通过 `IEnumerable<IToolPlugin>` 自动筛选 `IProactivePlugin` 实例，零 DI 配置。
 
 ### 外部插件系统
 
@@ -181,9 +225,9 @@ public sealed class PluginToolDefinition
 ### Chat
 - **ChatAgentService**：~300 行，仅负责 MAF AIAgent 生命周期管理 + 流式输出 + 模式建议收集。工具方法全部移到 Plugins/，通过 `IToolPluginHost.GetAllTools()` 获取 AIFunction 数组，通过 `IToolPluginHost.GetAggregatedPrompt()` 获取聚合提示词。支持 `SendMessageStreaming(message, imageBytes?, ct)` 流式输出（含可选图片附件，通过 MEAI DataContent 传递多模态消息）和 `ClearHistoryAsync()` 清空历史+重置模式检测（异步事件处理，旧 Session 延迟 Dispose），以及 `SwitchConversationAsync()` 切换对话时重建 MAF Session。内建 PatternDetector 模式检测（≥4 次重复 + ≥3 工具序列），通过 `CollectPatternSuggestion()` 返回建议。离线探测（`ProbeNetworkAsync()`，3s 超时 HEAD 请求）+ `IsOffline` 属性。对话摘要轮次计数（`IncrementSummarizerRound()` / `ShouldSummarize`）+ 摘要提示词片段注入。`SemaphoreSlim(1,1)` 防止 `SendMessageStreaming` 和 `ClearHistoryAsync` 并发执行，`OnClearChat` 事件通过 async void 等待锁释放后执行。资源成本：仅消息发送时消耗，空闲时零开销（事件驱动）。
 - **ChatSystemPrompt**：系统提示词构建器。含核心行为准则（工具优先，不说"我做不到"）、实时数据查询指引（wttr.in 天气、web_search 新闻、翻译策略、股票）、文件操作/系统操作/窗口控制/信息搜索工具列表、knowledge_search 本地文档搜索、调度器多场景示例、多模态图片支持说明、Markdown 输出格式指引。自定义系统提示词（来自 UserSettings）优先于默认。聚合所有插件提示词片段 + 对话摘要。线程安全缓存（双重检查锁定），cache键含 pluginFragments + customPrompt，不变则复用（零分配）。
-- **ChatViewModel**：消息列表管理、流式 AI 响应更新、`/clear` 本地拦截、数学/日期本地计算、对话持久化（自动保存/恢复）、模式建议展示（通过 InfoBar 提示，不占用消息列表）、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头导航，最近 50 条）。消息上限 200 条自动修剪。多对话管理（引用 ConversationListViewModel，对话切换时保存/加载/清空 Messages）。消息编辑（StartEditMessage/SaveEditMessage/CancelEditMessage 命令：编辑后修剪后续消息 → 重建 Session → 重新发送）。重新生成回复（RegenerateLastResponse 命令：移除最后 Assistant → 复用编辑路径重发）。图片粘贴（PasteImageCommand：Clipboard.ContainsImage() → 缩放大图 → PendingImageBytes）。文件拖拽处理（HandleDroppedFiles：文本文件读 10KB 粘贴，PDF/Office 预填指令，图片路由到粘贴）。内建自动模型路由（ModelRoutingService），简单对话走本地模型（零 token），复杂/需工具走远程。离线模式：网络不可用时强制走本地模型。Token 用量显示（底部状态栏 `TokenDisplay`）。对话摘要集成。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService + TokenUsageService + ConversationSummarizer + ConversationStorageService + ConversationListViewModel + LocalCommandInterceptor。
+- **ChatViewModel**：消息列表管理、流式 AI 响应更新、对话持久化（自动保存/恢复）、模式建议展示（InfoBar）、InfoBar 错误显示、取消流式响应（CancelCommand）、输入历史记录（Up/Down 箭头，最近 50 条）。消息上限 200 条自动修剪。多对话管理（ConversationListViewModel）。消息编辑/重新生成/图片粘贴/文件拖拽。自动模型路由（ModelRoutingService）。离线模式。Token 用量显示。对话摘要集成。消息预处理委托给 MessagePreprocessor（本地拦截/计算/主动插件/预搜索）。依赖 ChatAgentService + IChatHistoryService + IDangerousToolPolicy + ModelRoutingService + TokenUsageService + ConversationSummarizer + ConversationStorageService + ConversationListViewModel + MessagePreprocessor。
 - **LocalCommandInterceptor**：本地命令拦截器。40+ 条确定性系统指令（打开任务管理器/计算器/记事本/下载文件夹/设置、锁屏、关机重启、清空回收站等）在发送到 AI 前被正则+字典匹配拦截，本地 `Process.Start` 直接执行。`TryIntercept(input)` 返回 null（不是已知命令）或执行结果字符串。资源成本：仅拦截匹配时 ~1ms，空闲时零开销。
-- **ChatViewModel 内建本地拦截**：`TryComputeLocally(input)` 在 SendInternalAsync 中位于 LocalCommandInterceptor 之后、AI 路由之前。处理纯数学表达式（DataTable.Compute）、日期时间查询（"今天几号""现在几点""今天星期几"等）。零 token 消耗。
+- **MessagePreprocessor**：消息预处理管线。将 ChatViewModel 的预处理逻辑（本地命令拦截、本地计算/日期、主动插件触发 IProactivePlugin、实时查询预搜索）抽取为独立服务。返回 `Result(AiInput, HandledLocally, LocalResponse)`。防止 ChatViewModel 持续膨胀。依赖 LocalCommandInterceptor + IEnumerable<IToolPlugin>。资源成本：按需消耗（仅在用户发送消息时运行），空闲时零开销。
 - **ChatMessage**：继承 `ObservableObject`，Content 属性支持 `INotifyPropertyChanged` 供流式输出时 UI 实时更新。新增字段：ConversationId（多对话支持）、ImagePath/ImageBytes/HasImage（图片附件支持）、IsEditing/EditText（消息编辑支持）、CanRegenerate（重新生成支持，JsonIgnore）。
 - **ChatView**：WPF 聊天界面（深色/浅色主题切换，Markdown 渲染、代码高亮、消息气泡、输入框、加载动画、取消按钮），无 DropShadowEffect。左侧 200px 可折叠 Sidebar（对话列表 + 搜索框 + 新建按钮）。消息气泡支持：图片缩略图（MaxWidth=300, MaxHeight=200）、编辑按钮（hover 显示，切换 TextBox）、重新生成按钮（最后一条 Assistant 消息）。粘贴图片按钮 + 待发图片预览。支持文件拖放（AllowDrop=true，DragEnter/Drop 处理）。Markdig.Wpf 解析 Markdown → FlowDocument。支持 Up/Down 箭头导航输入历史。所有颜色使用 DynamicResource 主题系统。
 - **ChatHistoryService**：委托给 ConversationStorageService，接口不变（Load/Save/HasHistory）。Save 保存到当前活跃对话文件，Load 从活跃对话加载。
@@ -211,6 +255,7 @@ public sealed class PluginToolDefinition
 | **WorkflowPlugin** | `Plugins/WorkflowPlugin/` | 4 | list_workflows, run_workflow, delete_workflow, save_workflow |
 | **LocalLLMPlugin** | `Plugins/LocalLLMPlugin/` | 1 | local_llm (Qwen2.5-0.5B 本地推理) |
 | **KnowledgeBasePlugin** | `Plugins/KnowledgeBasePlugin/` | 1 | knowledge_search (搜索本地已索引文档，TF-IDF + 余弦相似度) |
+| **WeatherPlugin** | `Plugins/WeatherPlugin/` | 1 | get_weather (wttr.in 天气 + 6 类衣食住行生活建议)。实现 IProactivePlugin：天气查询自动本地获取，不依赖 AI 调工具 |
 | **PluginManagementWindow** | `Plugins/` | - | 插件可视化管理：查看、启用/禁用、删除、导入。Transient 生命周期。从托盘右键菜单"插件管理"打开 |
 | **PluginMarketplaceWindow** | `Plugins/` | - | 插件市场：搜索 GitHub Gists 上的社区插件（`[personal-assistant-plugin]` 标签），一键下载安装。Transient 生命周期 |
 
@@ -519,7 +564,7 @@ PersonalAssistant/
 │       ├── SettingsWindow.xaml          # AI 配置 + 主题 + 快捷键 + 知识库 + 模型管理 + 开机自启动
 │       └── SettingsWindow.xaml.cs
 ├── Infrastructure/Common/
-│   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, BytesToImageConverter,
+│   ├── Helpers/                         # BrowserDetector, StartMenuScanner, AppIconGenerator, BytesToImageConverter, AppPaths,
 │   │                                    # 通用转换器（BoolToVisibility, InverseBool, MarkdownToFlowDocument）
 │   ├── Controls/                        # HotkeyCaptureBox (快捷键捕获控件)
 │   ├── Services/                        # TrayService, UserSettingsService(CustomSystemPrompt), ChatHistoryService(委托),

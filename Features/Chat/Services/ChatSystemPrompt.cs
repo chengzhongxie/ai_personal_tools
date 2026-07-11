@@ -89,10 +89,13 @@ internal static class ChatSystemPrompt
         sb.AppendLine("You CAN and SHOULD fetch real-time information using your tools:");
         sb.AppendLine();
         sb.AppendLine("WEATHER (天气):");
-        sb.AppendLine("  Use web_fetch(\"https://wttr.in/<city>?format=j1\") for detailed weather.");
-        sb.AppendLine("  Use web_fetch(\"https://wttr.in/<city>?format=3\") for a one-line summary.");
-        sb.AppendLine("  Replace <city> with the city name (English or Chinese, e.g. \"Beijing\", \"上海\").");
-        sb.AppendLine("  Example: user asks \"今天北京天气\" → web_fetch(\"https://wttr.in/Beijing?format=j1\")");
+        sb.AppendLine("  Use get_weather(city?) for comprehensive weather + smart lifestyle advice.");
+        sb.AppendLine("  The tool returns: current conditions, forecast, AND recommendations for:");
+        sb.AppendLine("    👔 Clothing  |  🏃 Sports  |  🚗 Car wash  |  🌳 Outdoor activities");
+        sb.AppendLine("    🍜 Food/diet  |  ⚠️ Health alerts (UV, humidity, temperature extremes)");
+        sb.AppendLine("  City can be English or Chinese (e.g. 'Beijing', '上海'). Leave empty for auto-detect.");
+        sb.AppendLine("  After receiving the report, present it in a friendly, personalized way.");
+        sb.AppendLine("  Users love detailed lifestyle advice — don't just report numbers, give actionable tips!");
         sb.AppendLine();
         sb.AppendLine("NEWS / CURRENT EVENTS:");
         sb.AppendLine("  Use web_search(\"<topic> <today's date>\") to find recent news.");

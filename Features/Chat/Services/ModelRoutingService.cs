@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using Humanizer;
 using Serilog;
 
 namespace PersonalAssistant.Features.Chat.Services;
@@ -21,24 +22,33 @@ public class ModelRoutingService
     private const string IntentClassifierPrompt =
         "You are an intent classifier. Analyze the user message and output exactly ONE label:\n" +
         "- conversation: casual chat, greeting, thanks, chitchat, emotional expression\n" +
-        "- question: asking for factual knowledge, explanation, advice, recommendation, opinion, translation, summary, definition\n" +
-        "- action: requesting to DO something on the computer (open apps, search files, manage windows, run commands, control system, send keys, manage clipboard, take screenshot)\n" +
+        "- question: asking for factual knowledge, explanation, advice, recommendation, opinion, summary, definition\n" +
+        "  (only if the answer is STATIC knowledge — math, history, science, how-to, concepts)\n" +
+        "- action: requesting to DO something (real-time lookup, web search, system operation, file management, translation)\n" +
+        "  CRITICAL: ANY query needing LIVE/REAL-TIME data (weather, news, stock, prices, current events) IS action.\n" +
+        "  Queries asking 'what is X today/now/currently' IS action.\n" +
         "- creation: requesting to CREATE/SAVE/WRITE files, code, documents, or data to disk\n" +
         "- system: requesting system automation (schedule tasks, manage workflows, set timers)\n\n" +
-        "IMPORTANT rules:\n" +
-        "- 'write a poem' = question (generating text, not saving to file)\n" +
-        "- 'write a poem and save it' = creation (explicitly saving)\n" +
-        "- 'recommend a movie' = question\n" +
-        "- 'search for movies' = action (needs web search)\n" +
-        "- 'what time is it' = question (just asking, not setting)\n" +
-        "- 'set an alarm for 8am' = system (scheduling)\n" +
-        "- 'tell me a joke' = conversation\n" +
-        "- 'open notepad' = action\n" +
-        "- 'explain quantum physics' = question\n" +
-        "- 'what is the weather today' = action (needs web fetch for real-time data)\n" +
-        "- 'translate this to English' = action (needs tools)\n" +
-        "- 'latest news about X' = action (needs web search)\n" +
-        "- 'stock price of Apple' = action (needs web search)\n\n" +
+        "IMPORTANT rules with BOTH English and Chinese examples:\n" +
+        "- 'write a poem' / '写一首诗' = question (generating text, not saving)\n" +
+        "- 'write a poem and save it' / '写首诗保存到桌面' = creation (explicitly saving)\n" +
+        "- 'recommend a movie' / '推荐一部电影' = question (opinion/advice)\n" +
+        "- 'search for movies online' / '帮我搜一下电影' = action (needs web search)\n" +
+        "- 'what time is it' / '现在几点' = question (static knowledge, just ask)\n" +
+        "- 'set an alarm for 8am' / '设个8点的闹钟' = system (scheduling)\n" +
+        "- 'tell me a joke' / '讲个笑话' = conversation\n" +
+        "- 'open notepad' / '打开记事本' = action\n" +
+        "- 'explain quantum physics' / '解释量子物理' = question\n" +
+        "- 'what is the weather today' / '今天天气怎么样' = action (REAL-TIME, needs web_fetch)\n" +
+        "- 'will it rain tomorrow' / '明天会下雨吗' = action (REAL-TIME, needs web_fetch)\n" +
+        "- 'translate this to English' / '翻成英文' = action (needs tools)\n" +
+        "- 'latest news about X' / '最近有什么新闻' = action (needs web search)\n" +
+        "- 'stock price of Apple' / '苹果股价多少' = action (REAL-TIME, needs web search)\n" +
+        "- 'is it hot today' / '今天热吗' = action (REAL-TIME weather)\n" +
+        "- 'suitable to go out' / '适合出门吗' = action (weather-dependent, needs real-time data)\n" +
+        "- 'dollar exchange rate' / '美元汇率' = action (REAL-TIME, needs web search)\n" +
+        "- 'what is Python' / 'Python是什么' = question (static knowledge)\n" +
+        "- 'write a Python script to sort a list' / '写个排序脚本' = question (code generation, not saving)\n\n" +
         "Output ONLY the label, nothing else.";
 
     /// <summary>质量检查用的系统提示词 — 判断回答是否合格</summary>
@@ -69,10 +79,12 @@ public class ModelRoutingService
 
     /// <summary>实时数据/外部信息查询关键词 — 需要 web_search/web_fetch 工具，必须走远程</summary>
     private static readonly Regex RealTimeQueryPattern = new(
-        // 天气相关
-        @"(天气|气温|下雨|下雪|降雨|刮风|刮台风|雾霾|台风|冰雹|暴雪|雷暴|" +
+        // 天气相关（核心关键词 + 口语化温度/体感描述）
+        @"(天气|气温|下雨|下雪|降雨|降雪|刮风|刮台风|雾霾|台风|冰雹|暴雪|雷暴|" +
         @"空气质量|湿度|风力|温度|摄氏度|华氏度|防晒|紫外线|" +
-        @"weather|temperature|rain|snow|wind|forecast|" +
+        @"晴|阴天|多云|晴朗|阴雨|暖和|凉爽|闷热|酷热|寒冷|炎热|高温|低温|干燥|潮湿|" +
+        @"热不热|冷不冷|热吗|冷吗|很热|太热|很冷|太冷|会热|会冷|降温|升温|" +
+        @"weather|temperature|rain|snow|wind|forecast|hot|cold|warm|cool|sunny|cloudy|" +
         // 新闻/时事
         @"新闻|资讯|头条|时事|热点|最新消息|最近发生|" +
         @"news|headline|trending|latest|current.event|" +
@@ -85,6 +97,7 @@ public class ModelRoutingService
         // 时间敏感词（今天/明天/后天/昨天 — 通常需要实时信息）
         @"(今天|明天|后天|昨天|本周|这周|下周|今晚|明早).{0,15}(天气|气温|下雨|下雪|降雨|" +
         @"新闻|股价|汇率|发生|怎么样|如何|什么|多少|几点|何时|日期|星期|" +
+        @"热|冷|晴|阴|暖|凉|" +
         @"weather|news|stock|price|happen|going|what|how|will|can)|" +
         // 网络搜索意图短语
         @"(搜一下|帮我搜|查找一下|网上查|上网搜|帮我查查|查阅一下|查一下|" +
@@ -95,6 +108,9 @@ public class ModelRoutingService
     {
         _localModel = localModel;
     }
+
+    /// <summary>判断是否为实时数据查询（天气、新闻、股票、汇率等），供预搜索使用</summary>
+    public static bool IsRealTimeQuery(string message) => RealTimeQueryPattern.IsMatch(message);
 
     /// <summary>
     /// 判断用户消息是否应该先尝试本地模型。
@@ -163,7 +179,7 @@ public class ModelRoutingService
             var adequate = await EvaluateQualityAsync(message, response);
             if (!adequate)
                 Log.Debug("[ModelRouting] 本地回答质量差，回退远程: {Msg}",
-                    message.Truncate(80));
+                    message.Truncate(80, "..."));
             return (response, adequate);
         }
         catch (Exception ex)
@@ -198,7 +214,7 @@ public class ModelRoutingService
         try
         {
             var qCheckResult = await _localModel.InferAsync(
-                prompt: $"Question: {question.Truncate(200)}\nResponse: {trimmed.Truncate(300)}",
+                prompt: $"Question: {question.Truncate(200, "...")}\nResponse: {trimmed.Truncate(300, "...")}",
                 maxTokens: 5,
                 systemPrompt: QualityCheckPrompt);
 
@@ -225,17 +241,25 @@ public class ModelRoutingService
             text.Contains("做不到") || text.Contains("很抱歉") ||
             text.Contains("对不起") || text.Contains("没有这个能力") ||
             text.Contains("没有访问") || text.Contains("不支持") ||
+            text.Contains("无法得知") || text.Contains("无法了解") ||
+            text.Contains("无法查询") || text.Contains("无法告诉") ||
+            text.Contains("没有联网") || text.Contains("没有连接") ||
+            text.Contains("没有接入") || text.Contains("请自行") ||
+            text.Contains("作为AI") || text.Contains("作为一个人工智能") ||
             (text.Contains("不会") && (text.Contains("天气") || text.Contains("新闻") || text.Contains("报价"))))
             return true;
         // 英文拒绝模式
         if (text.Contains("I cannot") || text.Contains("I can't") ||
             text.Contains("I don't have") || text.Contains("unable to") ||
-            text.Contains("don't have access"))
+            text.Contains("don't have access") || text.Contains("no access to") ||
+            text.Contains("not connected") || text.Contains("as an AI"))
             return true;
         // 建议用户自行查询（推卸责任）
-        if ((text.Contains("建议") || text.Contains("推荐")) &&
+        if ((text.Contains("建议") || text.Contains("推荐") || text.Contains("请") ||
+             text.Contains("可以") || text.Contains("不妨")) &&
             (text.Contains("查看") || text.Contains("访问") || text.Contains("搜索") ||
-             text.Contains("网站") || text.Contains("应用") || text.Contains("app")))
+             text.Contains("网站") || text.Contains("应用") || text.Contains("app") ||
+             text.Contains("气象") || text.Contains("天气预报") || text.Contains("当地")))
             return true;
         return false;
     }
@@ -285,16 +309,7 @@ public class ModelRoutingService
             return "system";
 
         // 无法识别 → 保守走远程
-        Log.Debug("[ModelRouting] 无法识别的意图标签: {Label}，默认走远程", raw.Truncate(50));
+        Log.Debug("[ModelRouting] 无法识别的意图标签: {Label}，默认走远程", raw.Truncate(50, "..."));
         return "action";
     }
-}
-
-/// <summary>
-/// 字符串扩展方法
-/// </summary>
-file static class StringExtensions
-{
-    public static string Truncate(this string value, int maxLength)
-        => value.Length <= maxLength ? value : value[..maxLength] + "...";
 }

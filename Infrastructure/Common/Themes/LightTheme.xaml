@@ -46,4 +46,18 @@
     <SolidColorBrush x:Key="Brush.UserBubbleText" Color="#000000" />
     <SolidColorBrush x:Key="Brush.BubbleTimestamp" Color="#B0B0B0" />
 
+    <!-- ═══ Markdown 元素配色（浅色） ═══ -->
+    <SolidColorBrush x:Key="Brush.MdHeading" Color="#1E40AF" />       <!-- 标题：深蓝 -->
+    <SolidColorBrush x:Key="Brush.MdHeading2" Color="#6D28D9" />      <!-- 子标题：紫色 -->
+    <SolidColorBrush x:Key="Brush.MdQuoteFg" Color="#4B5563" />       <!-- 引用文字 -->
+    <SolidColorBrush x:Key="Brush.MdQuoteBg" Color="#F3F4F6" />       <!-- 引用背景 -->
+    <SolidColorBrush x:Key="Brush.MdQuoteBorder" Color="#2563EB" />   <!-- 引用左边框 -->
+    <SolidColorBrush x:Key="Brush.MdCodeFg" Color="#065F46" />        <!-- 代码文字：深绿 -->
+    <SolidColorBrush x:Key="Brush.MdCodeBg" Color="#F1F5F9" />        <!-- 代码背景 -->
+    <SolidColorBrush x:Key="Brush.MdLink" Color="#2563EB" />           <!-- 链接：蓝色 -->
+    <SolidColorBrush x:Key="Brush.MdTableBorder" Color="#D1D5DB" />    <!-- 表格线 -->
+    <SolidColorBrush x:Key="Brush.MdTableHeader" Color="#E5E7EB" />    <!-- 表头背景 -->
+    <SolidColorBrush x:Key="Brush.MdBold" Color="#111827" />           <!-- 粗体加强 -->
+    <SolidColorBrush x:Key="Brush.MdRule" Color="#D1D5DB" />           <!-- 分割线 -->
+
 </ResourceDictionary>

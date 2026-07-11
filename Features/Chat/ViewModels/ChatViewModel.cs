@@ -8,7 +8,6 @@ using PersonalAssistant.Core.Services;
 using PersonalAssistant.Features.Chat.Models;
 using PersonalAssistant.Features.Chat.Models.Enums;
 using PersonalAssistant.Features.Chat.Services;
-using PersonalAssistant.Features.Clipboard.Services;
 using PersonalAssistant.Infrastructure.Common.Services;
 using Serilog;
 using Wpf.Ui.Controls;
@@ -23,6 +22,7 @@ public partial class ChatViewModel : ObservableObject
     private const int MaxDisplayMessages = 200;
     private const int MaxInputLength = 50000; // 最大输入长度限制（~12K tokens），防止超大粘贴导致 UI 冻结
 
+    private readonly MessagePreprocessor _preprocessor;
     private readonly ChatAgentService _chatAgent;
     private readonly IChatHistoryService _historyService;
     private readonly ConversationStorageService _convStorage;
@@ -94,7 +94,8 @@ public partial class ChatViewModel : ObservableObject
         TokenUsageService tokenUsage, ConversationSummarizer summarizer,
         PluginSharedState sharedState, ConversationStorageService convStorage,
         ConversationListViewModel conversationList,
-        LocalCommandInterceptor localCmd)
+        LocalCommandInterceptor localCmd,
+        MessagePreprocessor preprocessor)
     {
         Log.Information("[ChatViewModel] 构造开始");
         _chatAgent = chatAgent;
@@ -105,6 +106,7 @@ public partial class ChatViewModel : ObservableObject
         _summarizer = summarizer;
         _sharedState = sharedState;
         _localCmd = localCmd;
+        _preprocessor = preprocessor;
         ConversationList = conversationList;
 
         // 异步网络探测
@@ -262,30 +264,14 @@ public partial class ChatViewModel : ObservableObject
             return;
         }
 
-        // 本地命令拦截 — 确定性系统指令不走 AI，零 token
-        var localResult = _localCmd.TryIntercept(text);
-        if (localResult is not null)
-        {
-            Messages.Add(new ChatMessage
-            {
-                Role = MessageRole.System,
-                Content = localResult,
-                Timestamp = DateTime.Now
-            });
-            _currentCts?.Dispose();
-            _currentCts = null;
-            _historyService.Save(Messages);
-            return;
-        }
-
-        // 本地计算/日期拦截 — 纯算式、日期查询不走 AI，零 token
-        var computeResult = TryComputeLocally(text);
-        if (computeResult is not null)
+        // ═══ 消息预处理管线：本地拦截 → 本地计算 → 主动插件 → 预搜索 ═══
+        var preprocess = await _preprocessor.ProcessAsync(text);
+        if (preprocess.HandledLocally)
         {
             Messages.Add(new ChatMessage
             {
                 Role = MessageRole.Assistant,
-                Content = computeResult,
+                Content = preprocess.LocalResponse!,
                 Timestamp = DateTime.Now,
                 ConversationId = _convStorage.ActiveConversationId
             });
@@ -294,12 +280,14 @@ public partial class ChatViewModel : ObservableObject
             _historyService.Save(Messages);
             return;
         }
+        var aiInputText = preprocess.AiInput; // 发给 AI 的文本（可能已被预处理增强）
 
         // 捕获当前待发的图片数据
         var imageBytes = PendingImageBytes;
         PendingImageBytes = null;
 
         // Add user message with optional image (skip for edit/regenerate)
+        // 始终显示用户原始输入，不暴露系统注入的天气上下文
         if (addUserMessage)
         {
             Messages.Add(new ChatMessage
@@ -333,10 +321,10 @@ public partial class ChatViewModel : ObservableObject
         {
             try
             {
-                var (localResponse, _) = await _routing.TryLocalAsync(text);
+                var (localResponse, _) = await _routing.TryLocalAsync(aiInputText);
                 assistantMsg.Content = localResponse;
                 IsWorking = false;
-                _tokenUsage.RecordUsage(text, localResponse, false);
+                _tokenUsage.RecordUsage(aiInputText, localResponse, false);
                 TokenDisplay = _tokenUsage.GetDisplayText();
                 TrimDisplay();
                 _historyService.Save(Messages);
@@ -356,20 +344,20 @@ public partial class ChatViewModel : ObservableObject
         }
 
         // ═══ 自动模型路由：语义意图分类 → 简单对话走本地（零 token） ═══
-        if (_routing.ShouldTryLocal(text))
+        if (_routing.ShouldTryLocal(aiInputText))
         {
-            var intent = await _routing.ClassifyIntentAsync(text);
+            var intent = await _routing.ClassifyIntentAsync(aiInputText);
             Log.Debug("[ChatViewModel] 意图分类: {Intent} | {Msg}",
-                intent, text.Length > 80 ? text[..80] + "..." : text);
+                intent, aiInputText.Length > 80 ? aiInputText[..80] + "..." : aiInputText);
 
             if (ModelRoutingService.IsLocalIntent(intent))
             {
-                var (localResponse, isAdequate) = await _routing.TryLocalAsync(text);
+                var (localResponse, isAdequate) = await _routing.TryLocalAsync(aiInputText);
                 if (isAdequate)
                 {
                     assistantMsg.Content = localResponse;
                     IsWorking = false;
-                    _tokenUsage.RecordUsage(text, localResponse, false);
+                    _tokenUsage.RecordUsage(aiInputText, localResponse, false);
                     TokenDisplay = _tokenUsage.GetDisplayText();
                     TrimDisplay();
                     _historyService.Save(Messages);
@@ -385,7 +373,7 @@ public partial class ChatViewModel : ObservableObject
         try
         {
             var fullContent = "";
-            await foreach (var token in _chatAgent.SendMessageStreaming(text, imageBytes, ct))
+            await foreach (var token in _chatAgent.SendMessageStreaming(aiInputText, imageBytes, ct))
             {
                 fullContent += token;
                 assistantMsg.Content = fullContent;
@@ -402,7 +390,7 @@ public partial class ChatViewModel : ObservableObject
                 assistantMsg.ToolCalls.Add($"{toolName}: {result}");
 
             // 记录远程 API 用量
-            _tokenUsage.RecordUsage(text, fullContent, true);
+            _tokenUsage.RecordUsage(aiInputText, fullContent, true);
 
             // 设置当前 Assistant 消息可重新生成
             assistantMsg.CanRegenerate = true;
@@ -815,92 +803,5 @@ public partial class ChatViewModel : ObservableObject
     {
         while (Messages.Count > MaxDisplayMessages)
             Messages.RemoveAt(0);
-    }
-
-    /// <summary>
-    /// 尝试本地计算/日期查询。返回 null 表示不是可本地处理的问题，
-    /// 非 null 字符串直接展示给用户。
-    /// </summary>
-    private static string? TryComputeLocally(string input)
-    {
-        var text = input.Trim();
-
-        // ──── 日期/时间查询 ────
-        if (IsDateQuery(text))
-            return AnswerDateQuery(text);
-
-        // ──── 纯数学表达式 ────
-        if (ClipboardToolHelper.IsMathExpression(text))
-            return ClipboardToolHelper.EvaluateMath(text);
-
-        // ──── 带"计算"前缀的表达式 ────
-        var calcPrefixes = new[] { "计算 ", "计算:", "算 ", "算一下 ", "等于多少 " };
-        foreach (var prefix in calcPrefixes)
-        {
-            if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-            {
-                var expr = text[prefix.Length..].Trim();
-                if (ClipboardToolHelper.IsMathExpression(expr))
-                    return $"{expr} = {EvaluateSimple(expr)}";
-            }
-        }
-
-        return null;
-    }
-
-    private static bool IsDateQuery(string text)
-    {
-        var t = text.ToLowerInvariant().Replace("？", "").Replace("?", "").Trim();
-        return t is "今天几号" or "今天日期" or "今天星期几" or "今天周几"
-            or "现在几点" or "当前时间" or "几点了" or "现在时间"
-            or "今天" or "日期" or "时间" or "星期几" or "周几"
-            or "今年是哪年" or "今年" or "几月" or "几号";
-    }
-
-    private static string AnswerDateQuery(string text)
-    {
-        var now = DateTime.Now;
-        var t = text.ToLowerInvariant().Replace("？", "").Replace("?", "").Trim();
-
-        if (t.Contains("时间") || t.Contains("几点"))
-            return $"现在是 {now:yyyy年M月d日 HH:mm:ss}";
-        if (t.Contains("星期几") || t.Contains("周几"))
-            return $"今天是 {now:yyyy年M月d日}，星期{GetChineseWeekday(now.DayOfWeek)}";
-        if (t.Contains("哪年"))
-            return $"今年是 {now.Year} 年";
-        if (t.Contains("几月"))
-            return $"现在是 {now.Month} 月";
-        if (t.Contains("几号") || t.Contains("日期"))
-            return $"今天是 {now:yyyy年M月d日}，星期{GetChineseWeekday(now.DayOfWeek)}";
-
-        // 默认：完整日期时间
-        return $"今天是 {now:yyyy年M月d日}，星期{GetChineseWeekday(now.DayOfWeek)}，{now:HH:mm:ss}";
-    }
-
-    private static string GetChineseWeekday(DayOfWeek day) => day switch
-    {
-        DayOfWeek.Monday => "一",
-        DayOfWeek.Tuesday => "二",
-        DayOfWeek.Wednesday => "三",
-        DayOfWeek.Thursday => "四",
-        DayOfWeek.Friday => "五",
-        DayOfWeek.Saturday => "六",
-        DayOfWeek.Sunday => "日",
-        _ => "?"
-    };
-
-    private static string EvaluateSimple(string expr)
-    {
-        try
-        {
-            var cleaned = expr.Trim()
-                .Replace('×', '*').Replace('÷', '/').Replace("×", "*").Replace("÷", "/")
-                .Replace("π", Math.PI.ToString()).Replace("pi", Math.PI.ToString())
-                .Replace("Pi", Math.PI.ToString());
-
-            var result = new System.Data.DataTable().Compute(cleaned, null);
-            return result.ToString() ?? "计算错误";
-        }
-        catch { return "无法计算"; }
     }
 }
