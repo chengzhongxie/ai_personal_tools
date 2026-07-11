@@ -1,39 +1,66 @@
-# Claude WPF Library
+# PersonalAssistant
 
-可复用的 AI 编码助手项目规范模板，适用于 **.NET + WPF + MVVM** 技术栈的桌面应用。
+WPF 桌面 AI 助手——通过 DeepSeek API 提供 AI 对话+工具调用能力。带卡通机器人悬浮窗 + 系统托盘，支持开机自启动。
 
-## 使用方式（Git Submodule）
+## 功能
 
-```bash
-# 初始化
-git submodule add https://github.com/chengzhongxie/claude-wpf-library.git docs/template
-```
-
-```markdown
-<!-- 项目 CLAUDE.md 中引用 -->
-通用规范参见 [docs/template/CLAUDE_TEMPLATE.md](docs/template/CLAUDE_TEMPLATE.md)
-```
-
-```bash
-# 拉取模板更新
-git submodule update --remote docs/template
-```
-
-## 模板内容
-
-| 章节 | 内容 |
+| 模块 | 说明 |
 |------|------|
-| 0. 安全护栏 | 数据库/ Git /代码边界/安全编码/测试/行为准则 |
-| 1. 架构设计 | DDD 目录结构、单一职责、DI 注册模式 |
-| 2. 数据库规范 | 命名、实体映射、性能规则、跨库兼容 |
-| 3. 日志规范 | Serilog 三级日志体系、调试策略 |
-| 4. 库选择原则 | 选型标准 + 推荐库对照表 |
-| 5. WPF/MVVM 布局 | 侧边栏/分类栏/UserControl/ViewModel/颜色规范 |
-| 6. 命名约定 | 接口/服务/ViewModel/Page 命名模式 |
-| 7. 异常处理 | 分层处理策略、async void 禁令 |
-| 8. 配置文件管理 | 双层配置覆盖、敏感数据隔离 |
-| 9. Commit 规范 | 消息格式、type 分类、规则约束 |
+| AI 对话 | 流式输出、Markdown 渲染、多对话管理、消息编辑/重发、图片粘贴 |
+| 工具系统 | 27+ 个 AI 工具（文件/系统/网络/搜索/天气/知识库/定时/工作流），插件化热插拔 |
+| 天气插件 | 实时天气 + 6 类衣食住行智能建议（穿衣/运动/洗车/户外/饮食/健康），零 token |
+| 智能剪贴板 | 内容自动分类+上下文菜单（URL/代码/JSON/颜色/文件路径/数学表达式） |
+| 桌面小组件 | 天气/待办/系统状态卡片，可折叠侧边栏 |
+| 定时任务 | 每日定时执行 AI 工具，代码层本地路由，零 token |
+| 工作流 | 录制重复操作 → 保存 → 本地回放，零 token |
+| 知识库 | TF-IDF 全文检索本地文档（.md/.txt/.pdf） |
+| 本地模型 | Qwen2.5-0.5B 离线推理，断网可用 |
+| 模型路由 | 3 层漏斗：本地命令拦截 → 本地小模型 → 远程 DeepSeek，token 消耗最小化 |
 
-## 维护
+## 技术栈
 
-本仓库是模板的**唯一源**。各项目通过 submodule 引用，更新后项目端执行 `git submodule update --remote` 拉取最新版本。
+| 用途 | 技术 |
+|------|------|
+| 框架 | .NET 10 + WPF + WPF-UI 4.0 |
+| AI | Microsoft Agent Framework + DeepSeek API |
+| MVVM | CommunityToolkit.Mvvm 8.4 |
+| DI | Scrutor 6.1 自动扫描 |
+| 本地 LLM | LLamaSharp 0.27 + Qwen2.5-0.5B-Instruct GGUF |
+| Markdown | MdXaml 1.27 (MIT) |
+| HTML 解析 | AngleSharp 1.5 (MIT) |
+| 日志 | Serilog 4.3 |
+| 重试 | Polly 8.7 (BSD-3) |
+
+## 架构
+
+```
+ChatAgentService (MAF 生命周期 + 流式输出)
+    │
+    ├── IToolPluginHost (PluginAggregator)
+    │       ├── WeatherPlugin     ← IProactivePlugin（代码层主动触发，零 token）
+    │       ├── SystemToolsPlugin  (13 tools)
+    │       ├── WebToolsPlugin     (2 tools)
+    │       ├── SystemInfoPlugin   (2 tools)
+    │       ├── ChatToolsPlugin    (2 tools)
+    │       ├── SchedulerPlugin    (3 tools)
+    │       ├── WorkflowPlugin     (4 tools)
+    │       ├── LocalLLMPlugin     (1 tool)
+    │       └── KnowledgeBasePlugin (1 tool)
+    │
+    ├── MessagePreprocessor（本地拦截 → 主动插件 → 预搜索）
+    └── IDangerousToolPolicy（高危工具确认）
+```
+
+## 快速开始
+
+1. 注册 [DeepSeek API](https://platform.deepseek.com/) 获取 Key
+2. 启动应用 → 托盘右键 → 设置 → 填入 API Key
+3. `Alt+Space` 呼出主窗口，开始对话
+
+## 插件开发
+
+单个 `.cs` 文件放入 `%APPDATA%\PersonalAssistant\Plugins\` 即可扩展 AI 能力。详见 [插件开发手册](docs/PLUGIN_DEV_GUIDE.md)。
+
+## 项目结构
+
+详见 [CLAUDE.md](CLAUDE.md)
